@@ -9,6 +9,7 @@ import { selectActiveLayout, useProject } from '../store/project'
 import { useUi } from '../store/ui'
 import { Button, Icon, IconButton, LengthInput, Pill, Section, TextInput, type IconName } from './kit'
 import { MeasurementSections } from './Inspector'
+import { ReferenceSection } from './ReferencePanel'
 import { useScene } from './useScene'
 
 type Tab = 'library' | 'room' | 'layers'
@@ -111,7 +112,12 @@ function Library() {
       </div>
       {list.length === 0 && <div className="py-6 text-center text-[12px] text-ink3">Nothing matches “{q}”.</div>}
       <div className="mt-3">
-        {adding ? <NewItemForm onDone={() => setAdding(false)} /> : <Button full icon="plus" onClick={() => setAdding(true)}>New custom item</Button>}
+        {adding ? <NewItemForm onDone={() => setAdding(false)} /> : (
+          <div className="space-y-1.5">
+            <Button full icon="plus" onClick={() => setAdding(true)}>New custom item</Button>
+            <Button full icon="wall" onClick={() => useUi.getState().openShapeEditor({ kind: 'new' })}>Draw a custom shape</Button>
+          </div>
+        )}
         <div className="mt-2 text-[11px] leading-snug text-ink3">Starter sizes are typical dimensions, not your measurements. Select anything on the plan to edit its exact size.</div>
       </div>
     </div>
@@ -140,7 +146,7 @@ function NewItemForm({ onDone }: { onDone: () => void }) {
         }}>Add to library</Button>
         <Button variant="ghost" onClick={onDone}>Cancel</Button>
       </div>
-      <div className="text-[11px] text-ink3">Polygon shapes (like the L-desk) can be built from rectangles in the custom shape editor, coming in Wave 2.</div>
+      <Button variant="ghost" icon="wall" onClick={() => { onDone(); useUi.getState().openShapeEditor({ kind: 'new' }) }}>Draw a custom shape instead…</Button>
     </div>
   )
 }
@@ -184,6 +190,7 @@ function RoomTools() {
         {wallTool && <div className="mt-2 rounded-lg bg-accentsoft p-2 text-[12px] text-accent">Click to start a wall, click again to end it. Double-click or press Esc when done. Hold Alt to bypass snapping.</div>}
         <div className="mt-2 text-[11px] text-ink3">New items start unmeasured. Nothing is placed from photographs.</div>
       </Section>
+      <ReferenceSection />
       <MeasurementSections />
       <Section title="Room">
         <Button full icon="sliders" onClick={() => { setMode('room'); useUi.getState().select(null) }}>Room dimensions and rules</Button>

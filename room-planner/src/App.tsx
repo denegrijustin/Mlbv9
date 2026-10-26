@@ -6,6 +6,7 @@ import { useHotkeys } from './ui/hotkeys'
 import { Inspector, ViewSettings } from './ui/Inspector'
 import { Button, Icon, IconButton, type IconName } from './ui/kit'
 import { LeftPanel } from './ui/LeftPanel'
+import { ShapeEditorDialog } from './ui/ShapeEditor'
 import { Toolbar } from './ui/Toolbar'
 import { useIsMobile } from './ui/useMedia'
 import { useProject } from './store/project'
@@ -85,6 +86,7 @@ export default function App() {
           <BottomSheet open={sheet === 'settings'} onClose={() => setSheet(null)} title="Settings"><ViewSettings /></BottomSheet>
         </>
       )}
+      <ShapeEditorDialog />
       <Toast />
     </div>
   )

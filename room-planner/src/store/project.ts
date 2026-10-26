@@ -3,8 +3,11 @@ import { produce, type Draft } from 'immer'
 import { shapeExtent } from '../geometry/shapes'
 import { createSeedProject, furnitureFromTemplate, makeArch, makeInteriorWall } from '../model/defaults'
 import { newId } from '../model/ids'
-import type { ArchItem, ArchType, FurnitureItem, FurnitureTemplate, InteriorWall, Layout, Project, Room, Settings } from '../model/types'
+import type { ArchItem, ArchType, FurnitureItem, FurnitureTemplate, InteriorWall, Layout, Project, ReferenceImage, Room, Settings } from '../model/types'
 import type { Vec } from '../geometry/vec'
+import { bbox } from '../geometry/polygon'
+import { orientClockwise } from '../geometry/outline'
+import { cutCorner, insertCorner, normalizeOrigin, outlineToRect, removeCorner, rectToOutline } from '../model/outlineEdit'
 
 const HISTORY_LIMIT = 200
 const COALESCE_MS = 700
@@ -37,6 +40,18 @@ interface ProjectState {
   // room + architecture
   updateRoom: (patch: Partial<Pick<Room, 'name' | 'width' | 'depth' | 'ceilingHeight' | 'floor' | 'wallThickness'>>) => void
   swapRoomDimensions: () => void
+  /** Custom (non-rectangular) outline editing. Each returns an error message, or null on success. */
+  convertToOutline: () => string | null
+  revertToRectangle: () => void
+  insertCorner: (edge: number) => void
+  removeCorner: (index: number) => void
+  cutCorner: (index: number, a: number, b: number) => string | null
+  setCorner: (index: number, p: Vec, transient?: boolean) => void
+  /** Shift the whole project so the outline starts at (0,0); returns the shift (for keeping the view steady). */
+  settleOutline: (transient?: boolean) => Vec
+  // reference image
+  setReference: (ref: ReferenceImage | null) => void
+  updateReference: (patch: Partial<ReferenceImage>, transient?: boolean) => void
   addArch: (type: ArchType, over?: Partial<ArchItem>) => string
   updateArch: (id: string, patch: Partial<ArchItem>, transient?: boolean) => void
   removeArch: (id: string) => void
@@ -158,6 +173,74 @@ export const useProject = create<ProjectState>((set, get) => {
         d.room.width = d.room.depth
         d.room.depth = w
       }),
+    convertToOutline: () => {
+      let err: string | null = null
+      commitRecipe((d) => {
+        if (d.room.outline) return
+        if (!rectToOutline(d.room as Room)) err = 'Enter both the width and the depth first — the outline starts from the measured rectangle.'
+      })
+      return err
+    },
+    revertToRectangle: () => commitRecipe((d) => void outlineToRect(d.room as Room)),
+    insertCorner: (edge) => commitRecipe((d) => void insertCorner(d.room as Room, edge)),
+    removeCorner: (index) =>
+      commitRecipe((d) => {
+        if (!removeCorner(d.room as Room, index)) return
+        normalizeOrigin(d as Project)
+        const bb = bbox(d.room.outline!)
+        d.room.width = bb.maxX
+        d.room.depth = bb.maxY
+      }),
+    cutCorner: (index, a, b) => {
+      let err: string | null = null
+      commitRecipe((d) => {
+        err = cutCorner(d.room as Room, index, a, b)
+        if (!err) {
+          d.room.outline = orientClockwise(d.room.outline!)
+          normalizeOrigin(d as Project)
+          const bb = bbox(d.room.outline!)
+          d.room.width = bb.maxX
+          d.room.depth = bb.maxY
+        }
+      })
+      return err
+    },
+    setCorner: (index, p, transient = false) => {
+      const recipe = (d: Draft<Project>) => {
+        if (d.room.outline?.[index]) d.room.outline[index] = p
+      }
+      if (transient) get().applyTransient(recipe)
+      else {
+        commitRecipe(recipe)
+        get().settleOutline()
+      }
+    },
+    settleOutline: (transient = false) => {
+      let shift: Vec = { x: 0, y: 0 }
+      const recipe = (d: Draft<Project>) => {
+        if (!d.room.outline) return
+        shift = normalizeOrigin(d as Project)
+        const bb = bbox(d.room.outline)
+        d.room.width = bb.maxX
+        d.room.depth = bb.maxY
+      }
+      if (transient) get().applyTransient(recipe)
+      else {
+        // folded into the previous history entry so a corner edit is a single undo step
+        const { project } = get()
+        const next = produce(project, recipe)
+        if (next !== project) set({ project: next })
+      }
+      return shift
+    },
+    setReference: (ref) => commitRecipe((d) => void (d.reference = ref as Draft<ReferenceImage> | null)),
+    updateReference: (patch, transient = false) => {
+      const recipe = (d: Draft<Project>) => {
+        if (d.reference) Object.assign(d.reference, patch)
+      }
+      if (transient) get().applyTransient(recipe)
+      else commitRecipe(recipe, 'reference')
+    },
     addArch: (type, over = {}) => {
       const item = makeArch(type, over)
       commitRecipe((d) => void d.room.items.push(item as Draft<ArchItem>))

@@ -22,7 +22,7 @@ const r4 = (n: number) => Math.round(n * 10000) / 10000
 const r8 = (n: number) => Math.round(n * 8) / 8
 
 type Gesture =
-  | { kind: 'pan'; start: Vec; vp0: Viewport; moved: boolean; tap: 'deselect' | 'measure' | 'wall' }
+  | { kind: 'pan'; start: Vec; vp0: Viewport; moved: boolean; tap: 'deselect' | 'measure' | 'wall' | 'calibrate' }
   | { kind: 'furniture'; id: string; startPx: Vec; startWorld: Vec; startPos: Vec; last: Vec; began: boolean; obstacles: Obstacle[]; targets: SnapTarget[] }
   | { kind: 'rotate'; id: string; last: number; began: boolean; obstacles: Obstacle[] }
   | { kind: 'resize'; id: string; target: 'furniture' | 'arch'; sx: number; sy: number; began: boolean }
@@ -30,6 +30,8 @@ type Gesture =
   | { kind: 'opening'; id: string; startPx: Vec; grab: number; wallId: string; began: boolean }
   | { kind: 'wall'; id: string; startPx: Vec; startWorld: Vec; a0: Vec; b0: Vec; began: boolean }
   | { kind: 'wallpoint'; id: string; end: 'a' | 'b'; began: boolean }
+  | { kind: 'corner'; index: number; began: boolean }
+  | { kind: 'reference'; startWorld: Vec; x0: number; y0: number; began: boolean }
   | { kind: 'pinch' }
 
 export function PlanCanvas() {
@@ -54,6 +56,8 @@ export function PlanCanvas() {
   const measureDraft = useUi((s) => s.measureDraft)
   const wallDraft = useUi((s) => s.wallDraft)
   const wallTool = useUi((s) => s.wallTool)
+  const calibrating = useUi((s) => s.calibrating)
+  const refEdit = useUi((s) => s.refEdit)
   const cmd = useUi((s) => s.canvasCmd)
   const fmt = useMemo(() => lengthFormatter(settings), [settings])
 
@@ -252,6 +256,24 @@ export function PlanCanvas() {
     return q
   }
 
+  /** Snap a dragged room corner to the grid and to the x / y of its neighbours (square walls). */
+  const snapCorner = (p: Vec, outline: Vec[], index: number, alt: boolean): Vec => {
+    if (alt) return { x: r8(p.x), y: r8(p.y) }
+    const s = useProject.getState().project.settings
+    const th = s.snapThreshold / 1
+    let q = { x: p.x, y: p.y }
+    const n = outline.length
+    if (s.snapEnabled) {
+      const step = s.gridSize > 0 && s.snapGrid ? s.gridSize : 1
+      q = { x: Math.round(q.x / step) * step, y: Math.round(q.y / step) * step }
+      for (const nb of [outline[(index + 1) % n], outline[(index - 1 + n) % n]]) {
+        if (Math.abs(p.x - nb.x) <= th) q.x = nb.x
+        if (Math.abs(p.y - nb.y) <= th) q.y = nb.y
+      }
+    } else q = { x: r8(p.x), y: r8(p.y) }
+    return q
+  }
+
   // ---------------------------------------------------------------- pointer handling
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     const sp = screenPt(e)
@@ -280,6 +302,10 @@ export function PlanCanvas() {
     }
 
     // tools that act on taps over empty canvas AND over objects
+    if (ui.calibrating) {
+      gesture.current = { kind: 'pan', start: sp, vp0: vpRef.current, moved: false, tap: 'calibrate' }
+      return
+    }
     if (ui.mode === 'measure') {
       gesture.current = { kind: 'pan', start: sp, vp0: vpRef.current, moved: false, tap: 'measure' }
       return
@@ -300,6 +326,21 @@ export function PlanCanvas() {
       const [sx, sy] = (target?.dataset.handle ?? '0,0').split(',').map(Number)
       gesture.current = { kind: 'resize', id, target: (target?.dataset.target as 'furniture' | 'arch') ?? 'furniture', sx, sy, began: false }
       return
+    }
+    if (hit === 'edgeadd') {
+      proj.insertCorner(Number(id))
+      return
+    }
+    if (hit === 'corner' && ui.mode === 'room') {
+      gesture.current = { kind: 'corner', index: Number(id), began: false }
+      return
+    }
+    if (hit === 'reference') {
+      const r = proj.project.reference
+      if (r && !r.locked) {
+        gesture.current = { kind: 'reference', startWorld: world, x0: r.x, y0: r.y, began: false }
+        return
+      }
     }
     if (hit === 'wallpoint') {
       gesture.current = { kind: 'wallpoint', id, end: (target?.dataset.end as 'a' | 'b') ?? 'b', began: false }
@@ -532,6 +573,26 @@ export function PlanCanvas() {
       return
     }
 
+    if (g.kind === 'reference') {
+      if (!g.began) {
+        g.began = true
+        proj.beginTransient()
+      }
+      proj.updateReference({ x: g.x0 + (world.x - g.startWorld.x), y: g.y0 + (world.y - g.startWorld.y) }, true)
+      return
+    }
+
+    if (g.kind === 'corner') {
+      if (!g.began) {
+        g.began = true
+        proj.beginTransient()
+      }
+      const o = proj.project.room.outline
+      if (!o) return
+      proj.setCorner(g.index, snapCorner(world, o, g.index, e.altKey), true)
+      return
+    }
+
     if (g.kind === 'wallpoint') {
       if (!g.began) {
         g.began = true
@@ -574,6 +635,9 @@ export function PlanCanvas() {
           ui.setMeasureDraft(null)
           setHoverB(null)
         }
+      } else if (g.tap === 'calibrate' && ui.calibrating) {
+        const pts = ui.calibrating.points.length >= 2 ? [] : ui.calibrating.points
+        ui.setCalibrating({ points: [...pts, { x: r8(w.x * 8) / 8, y: r8(w.y * 8) / 8 }] })
       } else if (g.tap === 'wall') {
         const p = snapWallPoint(w, ui.wallDraft, e.altKey)
         if (!ui.wallDraft) ui.setWallDraft(p)
@@ -586,7 +650,12 @@ export function PlanCanvas() {
         ui.select(null)
       }
     }
-    if (g.kind === 'furniture' || g.kind === 'rotate' || g.kind === 'resize' || g.kind === 'arch' || g.kind === 'opening' || g.kind === 'wall' || g.kind === 'wallpoint') {
+    if (g.kind === 'corner' && g.began) {
+      // Re-anchor the plan's origin to the outline's north-west extent without making a second undo step.
+      const shift = proj.settleOutline(true)
+      if (shift.x || shift.y) ui.setViewport({ panX: ui.viewport.panX - shift.x * ui.viewport.zoom, panY: ui.viewport.panY - shift.y * ui.viewport.zoom })
+    }
+    if (g.kind === 'furniture' || g.kind === 'rotate' || g.kind === 'resize' || g.kind === 'arch' || g.kind === 'opening' || g.kind === 'wall' || g.kind === 'wallpoint' || g.kind === 'corner' || g.kind === 'reference') {
       if ('began' in g && g.began) proj.endTransient()
     }
     ui.setDrag(null)
@@ -614,9 +683,55 @@ export function PlanCanvas() {
 
   // ---------------------------------------------------------------- handles + HUD (screen space)
   const handles = useMemo(() => {
-    if (presentation || !selection) return null
+    if (presentation) return null
     const px = vp.zoom
     const out: React.ReactNode[] = []
+    const outline = project.room.outline
+    if (outline && arch.room.custom && mode === 'room') {
+      const n = outline.length
+      outline.forEach((a, i) => {
+        const b = outline[(i + 1) % n]
+        const m = toScreen(vp, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
+        if (Math.hypot(b.x - a.x, b.y - a.y) * px > 36) {
+          out.push(
+            <g key={`ea-${i}`} data-hit="edgeadd" data-id={i} style={{ pointerEvents: 'auto', cursor: 'copy' }}>
+              <title>Add a corner</title>
+              <circle cx={m.x} cy={m.y} r={11} fill="transparent" />
+              <circle cx={m.x} cy={m.y} r={5.5} fill={theme.chip} stroke={theme.ink3} strokeWidth={1.25} />
+              <path d={`M ${m.x - 2.6} ${m.y} H ${m.x + 2.6} M ${m.x} ${m.y - 2.6} V ${m.y + 2.6}`} stroke={theme.ink3} strokeWidth={1.25} strokeLinecap="round" />
+            </g>,
+          )
+        }
+      })
+      outline.forEach((a, i) => {
+        const p = toScreen(vp, a)
+        out.push(
+          <g key={`co-${i}`} data-hit="corner" data-id={i} style={{ pointerEvents: 'auto', cursor: 'move' }}>
+            <title>{`Corner ${i + 1} — drag to move`}</title>
+            <circle cx={p.x} cy={p.y} r={13} fill="transparent" />
+            <circle cx={p.x} cy={p.y} r={6.5} fill={theme.chip} stroke={theme.accent} strokeWidth={2.25} />
+          </g>,
+        )
+      })
+    }
+    if (calibrating) {
+      const [a, b2] = calibrating.points
+      if (a && b2) {
+        const sa = toScreen(vp, a)
+        const sb = toScreen(vp, b2)
+        out.push(<line key="cal-line" x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={theme.accent} strokeWidth={2} strokeDasharray="6 4" style={{ pointerEvents: 'none' }} />)
+      }
+      calibrating.points.forEach((pt, i) => {
+        const sp2 = toScreen(vp, pt)
+        out.push(
+          <g key={`cal-${i}`} style={{ pointerEvents: 'none' }}>
+            <circle cx={sp2.x} cy={sp2.y} r={7} fill={theme.chip} stroke={theme.accent} strokeWidth={2.5} />
+            <text x={sp2.x + 11} y={sp2.y - 9} fontSize={12} fontWeight={600} fill={theme.accent}>{i === 0 ? 'A' : 'B'}</text>
+          </g>,
+        )
+      })
+    }
+    if (!selection) return out.length ? out : null
     if (selection.kind === 'furniture' && selFurniture && !selFurniture.hidden && mode === 'furniture') {
       const f = selFurniture
       const flipped = localPolygon(f.shape, f.width, f.depth).map((p) => ({ x: f.flipX ? -p.x : p.x, y: f.flipY ? -p.y : p.y }))
@@ -701,12 +816,12 @@ export function PlanCanvas() {
       }
     }
     return out
-  }, [presentation, selection, selFurniture, mode, vp, theme, fmt, rotLabel, project.room, arch.arch, drag])
+  }, [presentation, selection, selFurniture, mode, vp, theme, fmt, rotLabel, project.room, arch.arch, arch.room.custom, drag, calibrating])
 
   const measureDraftLine = measureDraft && hoverB ? { a: measureDraft, b: hoverB } : null
   const wallDraftLine = wallDraft && hoverB ? { a: wallDraft, b: hoverB } : null
 
-  const cursor = mode === 'measure' || (mode === 'room' && wallTool) ? 'crosshair' : drag ? 'grabbing' : 'default'
+  const cursor = calibrating || mode === 'measure' || (mode === 'room' && wallTool) ? 'crosshair' : drag ? 'grabbing' : 'default'
 
   return (
     <div
@@ -734,6 +849,8 @@ export function PlanCanvas() {
         measurements={project.measurements}
         measureDraft={measureDraftLine}
         wallDraft={wallDraftLine}
+        reference={project.reference ?? null}
+        refEdit={refEdit}
         mode={mode}
         interactive={!presentation}
         presentation={presentation}

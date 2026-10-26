@@ -7,6 +7,7 @@ export type Mode = 'furniture' | 'room' | 'measure'
 export type SelectionKind = 'furniture' | 'arch' | 'wall' | 'measurement'
 export type MeasureMode = 'free' | 'horizontal' | 'vertical'
 export type Sheet = 'library' | 'inspector' | 'layouts' | 'settings' | null
+export type ShapeEditorTarget = { kind: 'new' } | { kind: 'item'; id: string }
 export type CanvasCmd = 'fit' | 'center' | 'zoomIn' | 'zoomOut' | 'reset'
 
 export interface Viewport {
@@ -44,6 +45,11 @@ interface UiState {
   wallTool: boolean
   canvasSize: { w: number; h: number }
   canvasCmd: { type: CanvasCmd; nonce: number } | null
+  shapeEditor: ShapeEditorTarget | null
+  /** Reference-image calibration: picking two points on the photo. */
+  calibrating: { points: Vec[] } | null
+  /** True while the reference photo is being dragged into place. */
+  refEdit: boolean
 
   setMode: (m: Mode) => void
   select: (sel: UiState['selection']) => void
@@ -61,6 +67,9 @@ interface UiState {
   setWallTool: (b: boolean) => void
   setCanvasSize: (s: { w: number; h: number }) => void
   sendCanvasCmd: (type: CanvasCmd) => void
+  openShapeEditor: (t: ShapeEditorTarget | null) => void
+  setCalibrating: (c: { points: Vec[] } | null) => void
+  setRefEdit: (b: boolean) => void
 }
 
 export const useUi = create<UiState>((set) => ({
@@ -81,6 +90,9 @@ export const useUi = create<UiState>((set) => ({
   wallTool: false,
   canvasSize: { w: 900, h: 640 },
   canvasCmd: null,
+  shapeEditor: null,
+  calibrating: null,
+  refEdit: false,
 
   setMode: (mode) => set({ mode, selection: null, measureDraft: null, wallDraft: null, wallTool: false }),
   select: (selection) => set({ selection }),
@@ -97,5 +109,8 @@ export const useUi = create<UiState>((set) => ({
   showToast: (toast) => set({ toast }),
   setWallTool: (wallTool) => set(wallTool ? { wallTool, wallDraft: null, selection: null } : { wallTool, wallDraft: null }),
   setCanvasSize: (canvasSize) => set({ canvasSize }),
+  openShapeEditor: (shapeEditor) => set({ shapeEditor }),
+  setCalibrating: (calibrating) => set({ calibrating }),
+  setRefEdit: (refEdit) => set({ refEdit }),
   sendCanvasCmd: (type) => set((s) => ({ canvasCmd: { type, nonce: (s.canvasCmd?.nonce ?? 0) + 1 } })),
 }))

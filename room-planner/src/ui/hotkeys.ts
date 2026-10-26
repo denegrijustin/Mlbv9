@@ -13,7 +13,7 @@ export function useHotkeys() {
       const ui = useUi.getState()
       const proj = useProject.getState()
       if (e.key === 'Alt') ui.setSnapSuspended(true)
-      if (isTyping(e.target)) return
+      if (isTyping(e.target) || ui.shapeEditor) return
       const mod = e.metaKey || e.ctrlKey
       const key = e.key.toLowerCase()
 

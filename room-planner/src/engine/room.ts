@@ -5,7 +5,8 @@
  * contradict each other it is reported as an issue that names the measurements involved.
  */
 import { intersect, subtract } from '../geometry/clip'
-import { pointInPolygon, rectPoly, rotatedRect, thickSegment, type Poly } from '../geometry/polygon'
+import { inwardNormal, orientClockwise, validateOutline, wallBands } from '../geometry/outline'
+import { bbox, pointInPolygon, rectPoly, rotatedRect, thickSegment, type Poly } from '../geometry/polygon'
 import { add, angleDiff, mul, norm, perp, sub, type Vec } from '../geometry/vec'
 import { formatLength } from '../geometry/units'
 import type { ArchItem, ArchType, BuiltIn, DoorItem, Pillar, Room, WallId, WallTV, WindowItem } from '../model/types'
@@ -34,6 +35,8 @@ export interface ResolvedWall {
   length: number | null
   unbounded: boolean
   thickness: number
+  /** Pre-computed mitred band for outline rooms; rectangles derive theirs. */
+  band?: Poly
 }
 
 export interface ResolvedRoom {
@@ -46,6 +49,8 @@ export interface ResolvedRoom {
   walls: ResolvedWall[]
   wallById: Map<WallId, ResolvedWall>
   openSides: Array<'east' | 'south'>
+  /** True when the floor is a custom outline rather than a width x depth rectangle. */
+  custom: boolean
 }
 
 export interface ResolvedArch {
@@ -94,7 +99,27 @@ export interface Architecture {
 
 const fmt = (n: number) => formatLength(n, { denom: 8 })
 
+function resolveOutlineRoom(room: Room, outline: Poly): ResolvedRoom {
+  const poly = orientClockwise(outline)
+  const b = bbox(poly)
+  const bands = wallBands(poly, room.wallThickness)
+  const walls: ResolvedWall[] = poly.map((a, i) => {
+    const c = poly[(i + 1) % poly.length]
+    const length = Math.hypot(c.x - a.x, c.y - a.y)
+    return {
+      id: `e${i}`, name: `Wall ${i + 1}`, kind: 'perimeter', a, b: c,
+      dir: norm(sub(c, a)), normalIn: inwardNormal(a, c), length, unbounded: false, thickness: room.wallThickness, band: bands[i],
+    }
+  })
+  for (const w of room.interiorWalls) {
+    const dir = norm(sub(w.b, w.a))
+    walls.push({ id: w.id, name: w.name, kind: 'interior', a: w.a, b: w.b, dir, normalIn: perp(dir), length: Math.hypot(w.b.x - w.a.x, w.b.y - w.a.y), unbounded: false, thickness: w.thickness })
+  }
+  return { width: b.maxX, depth: b.maxY, complete: true, polygon: poly, walls, wallById: new Map(walls.map((w) => [w.id, w])), openSides: [], custom: true }
+}
+
 export function resolveRoom(room: Room): ResolvedRoom {
+  if (room.outline && room.outline.length >= 3) return resolveOutlineRoom(room, room.outline)
   const W = room.width
   const D = room.depth
   const We = W ?? OPEN_EXTENT
@@ -144,6 +169,7 @@ export function resolveRoom(room: Room): ResolvedRoom {
     walls,
     wallById: new Map(walls.map((w) => [w.id, w])),
     openSides,
+    custom: false,
   }
 }
 
@@ -263,8 +289,8 @@ export function resolveArchitecture(room: Room): Architecture {
   const unresolved: UnresolvedEntry[] = []
 
   const roomMissing: string[] = []
-  if (room.width === null) roomMissing.push('Width (east–west)')
-  if (room.depth === null) roomMissing.push('Depth (north–south)')
+  if (!rr.custom && room.width === null) roomMissing.push('Width (east–west)')
+  if (!rr.custom && room.depth === null) roomMissing.push('Depth (north–south)')
   if (roomMissing.length) unresolved.push({ id: 'room', name: 'Room dimensions', type: 'room', missing: roomMissing, missingOptional: [] })
   for (const a of arch) {
     if (a.missing.length || a.missingOptional.length) {
@@ -273,10 +299,15 @@ export function resolveArchitecture(room: Room): Architecture {
   }
 
   // ---- Room-level sanity
-  if (room.width !== null && room.width <= 0) {
+  if (rr.custom) {
+    for (const [i, pr] of validateOutline(room.outline ?? []).entries()) {
+      issues.push({ id: `outline-${i}`, severity: 'error', message: `${pr.message} Move a corner so the walls form a single closed shape.`, itemIds: ['room'], measurements: pr.vertices.map((v) => `Corner ${v + 1}`) })
+    }
+  }
+  if (!rr.custom && room.width !== null && room.width <= 0) {
     issues.push({ id: 'room-width', severity: 'error', message: 'Room width must be greater than 0.', itemIds: ['room'], measurements: ['Room width'] })
   }
-  if (room.depth !== null && room.depth <= 0) {
+  if (!rr.custom && room.depth !== null && room.depth <= 0) {
     issues.push({ id: 'room-depth', severity: 'error', message: 'Room depth must be greater than 0.', itemIds: ['room'], measurements: ['Room depth'] })
   }
 

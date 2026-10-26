@@ -12,7 +12,7 @@ import type { Guide } from '../engine/snapping'
 import { bbox, centroid, thickSegment, type Poly } from '../geometry/polygon'
 import { add, dist, mul, type Vec } from '../geometry/vec'
 import { luminance, shade } from '../lib/color'
-import type { FurnitureItem, Measurement, Room, Settings } from '../model/types'
+import type { FurnitureItem, Measurement, ReferenceImage, Room, Settings } from '../model/types'
 import type { Mode, SelectionKind, Viewport } from '../store/ui'
 import { statusColor, type Theme } from './theme'
 import { toScreen } from './view'
@@ -34,6 +34,8 @@ export interface SceneProps {
   measurements: Measurement[]
   measureDraft: { a: Vec; b: Vec } | null
   wallDraft: { a: Vec; b: Vec } | null
+  reference?: ReferenceImage | null
+  refEdit?: boolean
   mode: Mode
   interactive: boolean
   /** Presentation / export: hide chrome, optionally keep labels. */
@@ -51,6 +53,7 @@ const P = (poly: Poly) => poly.map((p) => `${r3(p.x)},${r3(p.y)}`).join(' ')
 /** Outer band of a wall, as drawn in plan. Perimeter walls sit outside the interior face; interior walls are centred. */
 export function wallBand(w: ResolvedWall): Poly {
   if (w.kind === 'interior') return interiorWallPolygon(w)
+  if (w.band) return w.band
   const t = w.thickness
   const out = mul(w.normalIn, -1)
   const a = add(w.a, mul(w.dir, -t))
@@ -153,6 +156,7 @@ export function PlanScene(props: SceneProps) {
             <polygon points={P(rr.polygon)} fill={t.floor} />
             {showGrid && <polygon points={P(rr.polygon)} fill={`url(#${uid}grid)`} />}
             {showMajor && <polygon points={P(rr.polygon)} fill={`url(#${uid}major)`} />}
+            {props.reference?.visible && <ReferenceLayer r={props.reference} editable={!!props.refEdit && interactive && !props.reference.locked} />}
             {openY && !presentation && <rect x={0} y={fadeY0} width={We} height={FADE} fill={`url(#${uid}hatch)`} />}
             {openX && !presentation && <rect x={fadeX0} y={0} width={FADE} height={De} fill={`url(#${uid}hatch)`} />}
 
@@ -378,6 +382,17 @@ function ChairLabels({ analysis, vp, theme: t, fmt, settings }: SceneProps) {
           </g>
         )
       })}
+    </g>
+  )
+}
+
+function ReferenceLayer({ r, editable }: { r: ReferenceImage; editable: boolean }) {
+  const w = r.naturalWidth * r.inchesPerPixel
+  const h = r.naturalHeight * r.inchesPerPixel
+  return (
+    <g data-hit={editable ? 'reference' : undefined} style={editable ? { cursor: 'move' } : { pointerEvents: 'none' }} transform={`rotate(${r.rotation} ${r.x + w / 2} ${r.y + h / 2})`}>
+      <image href={r.dataUrl} x={r.x} y={r.y} width={w} height={h} opacity={r.opacity} preserveAspectRatio="none" />
+      {editable && <rect x={r.x} y={r.y} width={w} height={h} fill="none" stroke="#0071e3" strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeDasharray="6 4" />}
     </g>
   )
 }

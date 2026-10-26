@@ -104,6 +104,7 @@ function ExportMenu() {
         <div className="p-1.5">
           <MenuItem icon="presentation" onClick={() => { close(); setPresentation(true) }}>Presentation mode</MenuItem>
           <MenuItem icon="image" onClick={async () => { close(); try { const { exportPng } = await import('../lib/exportFiles'); if (await exportPng(useProject.getState().project)) toast('PNG exported') } catch (e) { toast(e instanceof Error ? e.message : 'Export failed') } }}>Export PNG</MenuItem>
+          <MenuItem icon="download" onClick={async () => { close(); try { const { exportPdf } = await import('../lib/exportFiles'); if (await exportPdf(useProject.getState().project)) toast('PDF exported') } catch (e) { toast(e instanceof Error ? e.message : 'Export failed') } }}>Export PDF (to scale)</MenuItem>
           <MenuItem icon="download" onClick={async () => { close(); const { exportSvg } = await import('../lib/exportFiles'); if (await exportSvg(useProject.getState().project)) toast('SVG exported') }}>Export SVG (vector)</MenuItem>
           <MenuItem icon="download" onClick={async () => { close(); const { exportJson } = await import('../lib/exportFiles'); if (await exportJson(useProject.getState().project)) toast('Project exported') }}>Export project (JSON)</MenuItem>
           <MenuItem icon="upload" onClick={() => fileRef.current?.click()}>Import project…</MenuItem>

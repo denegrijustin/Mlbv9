@@ -36,6 +36,12 @@ Interior dimensions are finished-surface to finished-surface. Wall thickness is 
 
 **Layouts**: Layout A, B, C… share the architecture and differ only in furniture. Save a copy, rename, delete, switch with keys `1`–`9`, or overlay another layout faintly to compare.
 
+### Wave 2 features
+- **Custom room outline** (Room mode → *Edit as custom shape*): starts from your measured rectangle (so width and depth must both be entered), then edit corners by dragging, typing X/Y, clicking a **+** on a wall to add a corner, removing corners, or *Cut out a corner* (an exact notch, e.g. a rectangle becomes an L). Walls are numbered *Wall 1…n*; doors, windows and TVs follow their walls through every edit, and anything that cannot be carried across without guessing is detached and listed as "needs a wall". A self-crossing outline is reported as an error rather than repaired.
+- **Custom furniture shapes** (Furniture → *Draw a custom shape*, or *Edit footprint* on a placed piece): click to add corners, drag to move, snap to ½″/1″/3″/6″, type exact corner positions, scale to an overall width/depth. Presets: rectangle, L, U, angled corner, triangle. Saved to the library and used by collisions and clearance like any other piece.
+- **Reference photo** (Room tab): sits under the plan with opacity, rotation, lock and drag-to-position. It is labelled *Not to scale* until you click *Calibrate scale*, pick two points on it and type the real distance between them. It never produces a dimension by itself.
+- **PDF export** (⋯ menu → *Export PDF (to scale)*): Letter, plan with a printed scale (e.g. 1:26 when printed at 100%), unmeasured items listed, plus a furniture schedule page.
+
 ### Shortcuts
 `Ctrl/Cmd+Z` undo · `Shift+Ctrl/Cmd+Z` redo · `Ctrl/Cmd+D` duplicate · `Delete` remove · `R` / `Shift+R` rotate 90° · arrows nudge 1″ (`Shift` 6″, `Alt` ⅛″) · `L` lock · `F` fit · `C` center · `Space`+drag pan · wheel zoom · pinch on touch · `Esc` deselect / end tool
 
@@ -74,13 +80,15 @@ The brief allowed another renderer with a strong reason. SVG gives crisp vector 
 
 **Wave 1 (this build)**: room canvas, editable rectangular room, interior walls, pillars, built-ins, door (hinge + swing arc), window, wall TV, furniture library, accurate parametric L-desk, drag / rotate / resize, scale-aware geometry, snapping, collisions, clearance, measure tool, layouts, undo/redo, autosave, import/export, PNG/SVG export.
 
-**Wave 2**: custom polygon editor (rectangles → polygon, exact segment lengths), non-rectangular room outlines, photo reference panel (photos as visual references only, never as measurements), PDF export, side-by-side layout compare.
+**Wave 2 (this build)**: custom polygon editor with exact corner positions, non-rectangular room outlines (corner editing, notches, wall-attached openings preserved), calibrated photo reference, PDF export. Not yet: side-by-side layout compare, curved walls.
 
 **Wave 3**: 3D / isometric view from the same scene model (orbit, pan, zoom, top/perspective), richer furniture models, optional photo calibration from *entered* measurements.
 
 **Cloud sync (future)**: the project is a single versioned JSON document (`schema: 1`) with stable ids and independent layouts, so a sync layer can sit behind a `load()/save()` interface without changing the app. None is required today.
 
-## Known limits (Wave 1)
-- The room outline is a rectangle; interior walls can be added at any angle, but snapping treats walls as axis-aligned.
+## Known limits
+- Room outlines have straight walls only. Snapping to walls works on axis-aligned walls; angled walls are drawn and block furniture but furniture does not magnetically snap to them.
+- The PDF is the plan as a high-resolution image plus selectable text, not vector artwork.
+- A reference photo is downscaled to 2000 px and stored inside the project, so projects with photos are larger.
 - Round furniture is a 48-sided polygon for collisions.
 - Starter furniture sizes are typical dimensions, not measurements of your pieces.

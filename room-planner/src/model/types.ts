@@ -111,6 +111,11 @@ export interface Room {
   wallThickness: number
   interiorWalls: InteriorWall[]
   items: ArchItem[]
+  /**
+   * Custom floor outline (corners in inches, any number >= 3). When set it replaces the width x depth rectangle:
+   * `width`/`depth` then describe its bounding box and each edge i is the wall `e<i>`. Null/absent = rectangle.
+   */
+  outline?: Vec[] | null
 }
 
 export type FurnitureCategory = 'Office' | 'Bedroom' | 'Living Room' | 'Storage' | 'Lighting' | 'Plants' | 'Electronics' | 'Custom'
@@ -209,6 +214,26 @@ export interface Settings {
   showChairZone: boolean
 }
 
+/** A photograph or drawing placed under the plan for tracing. It is never used to derive a dimension on its own. */
+export interface ReferenceImage {
+  /** Downscaled JPEG/PNG data URL. */
+  dataUrl: string
+  naturalWidth: number
+  naturalHeight: number
+  /** Top-left corner of the image in plan inches (before rotation). */
+  x: number
+  y: number
+  /** Real inches per image pixel. Only trustworthy once `calibrated`. */
+  inchesPerPixel: number
+  calibrated: boolean
+  /** Degrees about the image centre. */
+  rotation: number
+  opacity: number
+  visible: boolean
+  locked: boolean
+  name: string
+}
+
 export interface Project {
   schema: 1
   id: string
@@ -218,6 +243,7 @@ export interface Project {
   activeLayoutId: string
   customTemplates: FurnitureTemplate[]
   measurements: Measurement[]
+  reference?: ReferenceImage | null
   settings: Settings
   updatedAt: number
 }

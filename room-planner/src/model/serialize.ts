@@ -34,6 +34,17 @@ export function validateProject(raw: unknown): ImportResult {
   for (const k of ['width', 'depth'] as const) {
     if (room[k] !== null && !isNum(room[k])) return { ok: false, error: `Room ${k} must be a number or empty.` }
   }
+  if (room.outline !== undefined && room.outline !== null) {
+    const o = room.outline
+    if (!Array.isArray(o) || o.length < 3 || !o.every((p) => isObj(p) && isNum(p.x) && isNum(p.y))) return { ok: false, error: 'The room outline must be a list of at least 3 corners.' }
+  }
+  const ref = candidate.reference
+  if (ref !== undefined && ref !== null) {
+    const nums = ['naturalWidth', 'naturalHeight', 'x', 'y', 'inchesPerPixel', 'rotation', 'opacity'] as const
+    if (!isObj(ref) || typeof ref.dataUrl !== 'string' || !/^data:image\//.test(ref.dataUrl) || !nums.every((k) => isNum(ref[k])) || (ref.inchesPerPixel as number) <= 0) {
+      return { ok: false, error: 'The reference photo in this file is malformed.' }
+    }
+  }
   if (!Array.isArray(room.items) || !Array.isArray(room.interiorWalls)) return { ok: false, error: 'The room is missing its architecture lists.' }
   if (!Array.isArray(candidate.layouts) || candidate.layouts.length === 0) return { ok: false, error: 'The project has no layouts.' }
   for (const [i, l] of candidate.layouts.entries()) {

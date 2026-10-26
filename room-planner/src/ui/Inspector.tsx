@@ -10,6 +10,7 @@ import { useProject } from '../store/project'
 import { useUi } from '../store/ui'
 import { Button, IconButton, LengthInput, NumInput, Pill, Row, Section, Segmented, Select, StatusDot, Switch, TextInput } from './kit'
 import { useScene } from './useScene'
+import { EdgeWallInspector, ShapeSection } from './OutlineControls'
 import { useIsMobile } from './useMedia'
 import type { Issue } from '../engine/room'
 import { furniturePolygon } from '../engine/scene'
@@ -32,7 +33,7 @@ export function Inspector() {
 }
 
 // ------------------------------------------------------------------ helpers
-function Header({ title, subtitle, onClose, children }: { title: ReactNode; subtitle?: ReactNode; onClose?: () => void; children?: ReactNode }) {
+export function Header({ title, subtitle, onClose, children }: { title: ReactNode; subtitle?: ReactNode; onClose?: () => void; children?: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -188,6 +189,7 @@ function FurnitureInspector({ item }: { item: FurnitureItem }) {
           <Button icon={item.hidden ? 'eyeOff' : 'eye'} onClick={() => update({ hidden: !item.hidden })}>{item.hidden ? 'Hidden' : 'Hide'}</Button>
           <Button icon="copy" onClick={() => { const id = p().duplicateFurniture(item.id); if (id) select({ kind: 'furniture', id }) }}>Duplicate</Button>
           <Button icon="save" onClick={saveTemplate}>Save to library</Button>
+          {(item.shape.kind === 'polygon' || item.shape.kind === 'rect') && <Button icon="wall" onClick={() => useUi.getState().openShapeEditor({ kind: 'item', id: item.id })} disabled={item.locked} title="Reshape the footprint corner by corner">Edit footprint</Button>}
           <Button variant="danger" icon="trash" onClick={() => { p().removeFurniture([item.id]); select(null) }}>Delete</Button>
         </div>
         {item.templateId === SEED_DESK_TEMPLATE.id && <div className="mt-2 text-[11px] text-ink3">Built from your measurements: 64″ main run × 24″ deep, 43½″ return, 21″ narrow end.</div>}
@@ -202,7 +204,8 @@ function FurnitureInspector({ item }: { item: FurnitureItem }) {
 
 // ------------------------------------------------------------------ architecture
 function ArchInspector({ item }: { item: ArchItem }) {
-  const { settings, arch } = useScene()
+  const { settings, arch, fmt: fmtLen0 } = useScene()
+  const fmtLen = (n: number | null) => (n === null ? '—' : fmtLen0(n))
   const units = settings.units
   const store = useProject.getState
   const set = (patch: Record<string, unknown>) => store().updateArch(item.id, patch as Partial<ArchItem>)
@@ -210,12 +213,14 @@ function ArchInspector({ item }: { item: ArchItem }) {
   const resolved = arch.arch.find((a) => a.id === item.id)
   const issues = arch.issues.filter((i) => i.itemIds.includes(item.id))
   const walls = arch.room.walls
-  const perim = (['north', 'east', 'south', 'west'] as const).map((id) => ({ id, label: `${id[0].toUpperCase()}${id.slice(1)} wall`, exists: walls.some((w) => w.id === id) }))
+  const perim = arch.room.custom
+    ? walls.filter((w) => w.kind === 'perimeter').map((w) => ({ id: w.id, label: `${w.name} (${fmtLen(w.length)})`, exists: true }))
+    : (['north', 'east', 'south', 'west'] as const).map((id) => ({ id, label: `${id[0].toUpperCase()}${id.slice(1)} wall`, exists: walls.some((w) => w.id === id) }))
   const interior = walls.filter((w) => w.kind === 'interior').map((w) => ({ id: w.id, label: w.name, exists: true }))
   const wallOptions = [{ value: '', label: 'Choose a wall…' }, ...[...perim, ...interior].map((w) => ({ value: w.id, label: w.exists ? w.label : `${w.label} (needs ${w.id === 'east' ? 'width' : 'depth'})`, disabled: !w.exists }))]
   const wallId = 'wallId' in item ? item.wallId : null
   const wall = wallId ? walls.find((w) => w.id === wallId) : undefined
-  const fromWhere = !wall ? '' : wall.kind === 'interior' ? 'from the wall’s start point' : wall.id === 'north' || wall.id === 'south' ? 'from the west corner' : 'from the north corner'
+  const fromWhere = !wall ? '' : wall.kind === 'interior' ? 'from the wall’s start point' : arch.room.custom ? `from the wall’s start corner (corner ${wall.id.slice(1) === '' ? '' : Number(wall.id.slice(1)) + 1})` : wall.id === 'north' || wall.id === 'south' ? 'from the west corner' : 'from the north corner'
   const typeLabel = { pillar: 'Pillar / column', builtin: 'Built-in', door: (item as DoorItem).style === 'opening' ? 'Doorway / opening' : 'Door', window: 'Window', tv: 'Wall-mounted TV' }[item.type]
 
   const L = (label: string, field: string, value: number | null, opts: { required?: boolean; hint?: string; min?: number; testId?: string } = {}) => (
@@ -323,6 +328,7 @@ function WallInspector({ id }: { id: string }) {
   const store = useProject.getState
   const select = useUi((s) => s.select)
   const room = project.room
+  if (/^e\d+$/.test(id)) return <EdgeWallInspector id={id} />
   const perimeter = ['north', 'east', 'south', 'west'].includes(id)
   const iw = room.interiorWalls.find((w) => w.id === id)
   const horizontal = id === 'north' || id === 'south'
@@ -434,11 +440,18 @@ function RoomPanel() {
       {tab === 'room' && (
         <>
           <Section title="Interior dimensions">
-            <Row label="Width" hint="East–west" flag={room.width === null}><LengthInput units={units} value={room.width} nullable flag={room.width === null} onCommit={(v) => store().updateRoom({ width: v })} min={1} testId="room-width" /></Row>
-            <Row label="Depth" hint="North–south" flag={room.depth === null}><LengthInput units={units} value={room.depth} nullable flag={room.depth === null} onCommit={(v) => store().updateRoom({ depth: v })} min={1} testId="room-depth" /></Row>
+            {room.outline ? (
+              <div className="mb-1 text-[12px] text-ink2">Set by the outline below.</div>
+            ) : (
+              <>
+                <Row label="Width" hint="East–west" flag={room.width === null}><LengthInput units={units} value={room.width} nullable flag={room.width === null} onCommit={(v) => store().updateRoom({ width: v })} min={1} testId="room-width" /></Row>
+                <Row label="Depth" hint="North–south" flag={room.depth === null}><LengthInput units={units} value={room.depth} nullable flag={room.depth === null} onCommit={(v) => store().updateRoom({ depth: v })} min={1} testId="room-depth" /></Row>
+              </>
+            )}
             <Row label="Ceiling height"><LengthInput units={units} value={room.ceilingHeight} nullable onCommit={(v) => store().updateRoom({ ceilingHeight: v })} min={1} /></Row>
-            <div className="mt-1 flex items-center gap-2 text-[12px] text-ink3"><span>Inside surface to inside surface.</span><Button variant="ghost" icon="move" onClick={() => store().swapRoomDimensions()} title="Swap width and depth">Swap</Button></div>
+            {!room.outline && <div className="mt-1 flex items-center gap-2 text-[12px] text-ink3"><span>Inside surface to inside surface.</span><Button variant="ghost" icon="move" onClick={() => store().swapRoomDimensions()} title="Swap width and depth">Swap</Button></div>}
           </Section>
+          <ShapeSection />
           <Section title="Finish">
             <Row label="Floor"><Select value={room.floor} width={120} onChange={(v) => store().updateRoom({ floor: v })} options={[{ value: 'carpet', label: 'Carpet' }, { value: 'wood', label: 'Wood' }, { value: 'tile', label: 'Tile' }, { value: 'other', label: 'Other' }]} /></Row>
             <Row label="Wall thickness" hint="Display only"><LengthInput units={units} value={room.wallThickness} min={0.5} onCommit={(v) => v !== null && store().updateRoom({ wallThickness: v })} /></Row>
