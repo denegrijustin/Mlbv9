@@ -50,3 +50,38 @@ class SimTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GridTests(unittest.TestCase):
+    def test_round_trip_earns_step_minus_fees(self):
+        from desk.grid import Grid
+        g = Grid(100.0, 1.0, n=2, lot_usd=100.0)
+        g.on_price(100.5, 99.5)    # falls through 100 -> buy
+        g.on_price(99.5, 100.5)    # rises through 100 -> sell the lot bought at 99? no: lot at level 100 sells at 101
+        self.assertEqual(g.round_trips, 0)
+        g.on_price(100.5, 101.5)   # rises through 101 -> sell
+        self.assertEqual(g.round_trips, 1)
+        self.assertGreater(g.realized, 0)
+
+    def test_pause_blocks_new_buys(self):
+        from desk.grid import Grid
+        g = Grid(100.0, 1.0, n=2)
+        g.on_price(100.5, 99.5, quote=False)
+        self.assertEqual(g.lots, {})
+
+    def test_stop_flattens_and_halts(self):
+        from desk.grid import Grid
+        g = Grid(100.0, 1.0, n=2)
+        g.on_price(100.5, 99.5)
+        g.stop(95.0)
+        self.assertEqual((g.lots, g.active), ({}, False))
+        self.assertLess(g.realized, 0)
+
+    def test_range_guard(self):
+        from desk.risk import range_guard
+        self.assertTrue(range_guard(97.0, 98.0, 102.0))
+        self.assertFalse(range_guard(100.0, 98.0, 102.0))
+
+    def test_judge_variant_not_worse_than_unprotected(self):
+        from desk.run_house import simulate_house
+        self.assertGreaterEqual(simulate_house("judge")[0], simulate_house("none")[0])

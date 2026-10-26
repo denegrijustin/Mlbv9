@@ -51,3 +51,8 @@ def exit_reason(tape, entry_price, *, stop_pct=0.004, liq_floor=0.2, short=6, lo
     if max_hold is not None and held >= max_hold:
         return "max_hold"
     return None
+
+
+def range_guard(price, low, high, tol=0.0):
+    """True when price has left the grid band (plus tolerance): the grid must stop and flatten."""
+    return price < low - tol or price > high + tol
