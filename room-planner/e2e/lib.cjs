@@ -11,7 +11,7 @@ async function open(opts = {}) {
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto((process.env.APP_URL || 'http://127.0.0.1:5199/') + '?e2e=1');
   await page.waitForFunction(() => window.__rp && document.querySelector('[data-testid="plan-svg"]'));
-  await page.evaluate(() => window.__rp.useProject.getState().resetToSeed());
+  await page.evaluate(() => { const s = window.__rp.useProject.getState(); s.resetToSeed(); /* tests start from the original one-dimension baseline */ s.updateRoom({ depth: null }); const p = s.project.room.items.find(i => i.type === 'pillar'); s.updateArch(p.id, { width: null }); window.__rp.useProject.setState({ past: [], future: [] }); });
   await page.waitForTimeout(400);
   return { browser, ctx, page, errors };
 }

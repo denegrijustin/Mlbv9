@@ -14,11 +14,13 @@ Everything is stored in **inches**, in room coordinates (origin = the room's nor
 | Supplied by you | Used as |
 |---|---|
 | One primary room dimension, 101″ | Room **width** (east–west). Use *Swap* in the Room panel if it is the other direction. |
+| Room depth, 102″ (your diagram: left wall and right wall, each “to pillar”) | Room **depth** (north–south) |
+| Pillar width, 24″ (your diagram) | Pillar width only; its position, depth and height are still unmeasured |
 | Desk: 64″ main run, 24″ deep | Main run |
 | Desk: ~43½″ return, ~21″ narrow end | Return, 43½″ measured **overall** along the outer edge (toggle *Past main* if you measured beyond the main run) |
 | Desk: curved inside corner | Real L-shaped polygon; the curve's **radius was not given**, so 6″ is a visible placeholder (labelled "Estimate: not measured") |
 
-Everything else (room depth, window, doorway, pillar, built-ins, wall TV) starts **unmeasured** and waits for you.
+Everything else (window, doorway, the pillar's position and depth, built-ins, wall TV) starts **unmeasured** and waits for you.
 
 Interior dimensions are finished-surface to finished-surface. Wall thickness is display-only.
 

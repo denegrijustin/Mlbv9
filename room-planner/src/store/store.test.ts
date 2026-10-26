@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { LDeskShape } from '../geometry/shapes'
-import { createSeedProject } from '../model/defaults'
 import { STARTER_LIBRARY } from '../model/library'
 import { exportProject, importProject, validateProject } from '../model/serialize'
 import { selectActiveLayout, useProject } from './project'
+import { baselineSeedProject } from '../model/testSeed'
 
 const s = () => useProject.getState()
 const desk = () => selectActiveLayout(s()).furniture[0]
 const tpl = (id: string) => STARTER_LIBRARY.find((t) => t.id === id)!
 
 beforeEach(() => {
-  useProject.setState({ project: createSeedProject(), past: [], future: [], base: null, lastCommit: null, hydrated: true })
+  useProject.setState({ project: baselineSeedProject(), past: [], future: [], base: null, lastCommit: null, hydrated: true })
 })
 
 describe('seed project', () => {

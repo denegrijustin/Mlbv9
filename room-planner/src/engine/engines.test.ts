@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createSeedRoom, furnitureFromTemplate, makeBuiltIn, makeDoor, makePillar, makeWindow } from '../model/defaults'
+import { furnitureFromTemplate, makeBuiltIn, makeDoor, makePillar, makeWindow } from '../model/defaults'
 import { DEFAULT_SETTINGS } from '../model/defaults'
 import { SEED_DESK_TEMPLATE, STARTER_LIBRARY } from '../model/library'
 import type { FurnitureItem, Room } from '../model/types'
@@ -7,8 +7,9 @@ import { computeChairZone, computeClearances, workEdges } from './clearance'
 import { constrainMove, findCollisions } from './collisions'
 import { resolveArchitecture } from './room'
 import { buildObstacles, furniturePolygon } from './scene'
+import { baselineSeedRoom } from '../model/testSeed'
 
-const room = (over: Partial<Room> = {}): Room => ({ ...createSeedRoom(), width: 101, depth: 120, items: [], ...over })
+const room = (over: Partial<Room> = {}): Room => ({ ...baselineSeedRoom(), width: 101, depth: 120, items: [], ...over })
 const tpl = (id: string) => STARTER_LIBRARY.find((t) => t.id === id)!
 const rules = DEFAULT_SETTINGS.rules
 const place = (id: string, x: number, y: number, rotation = 0): FurnitureItem => ({ ...furnitureFromTemplate(tpl(id), { x, y }), rotation })

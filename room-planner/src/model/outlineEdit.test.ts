@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { resolveArchitecture } from '../engine/room'
-import { createSeedRoom, makeDoor } from './defaults'
+import { makeDoor } from './defaults'
 import { cutCorner, insertCorner, outlineToRect, rectToOutline, removeCorner } from './outlineEdit'
 import type { DoorItem, Room } from './types'
+import { baselineSeedRoom } from './testSeed'
 
 const room = (): Room => {
-  const r = createSeedRoom()
+  const r = baselineSeedRoom()
   r.width = 120
   r.depth = 100
   r.items = []
@@ -27,7 +28,7 @@ describe('outline rooms', () => {
   })
 
   it('refuses to convert while a dimension is unmeasured', () => {
-    const r = createSeedRoom()
+    const r = baselineSeedRoom()
     expect(rectToOutline(r)).toBe(false)
     expect(r.outline).toBeFalsy()
   })

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { bbox, rectPoly } from '../geometry/polygon'
-import { createSeedRoom } from '../model/defaults'
 import type { Room } from '../model/types'
 import { resolveRoom } from './room'
 import { snapAngle, snapMove, type SnapOptions, type SnapTarget } from './snapping'
+import { baselineSeedRoom } from '../model/testSeed'
 
-const room = (over: Partial<Room> = {}) => resolveRoom({ ...createSeedRoom(), width: 101, depth: 120, items: [], ...over })
+const room = (over: Partial<Room> = {}) => resolveRoom({ ...baselineSeedRoom(), width: 101, depth: 120, items: [], ...over })
 const opts: SnapOptions = { enabled: true, walls: true, edges: true, centers: true, grid: 0, threshold: 3 }
 const boxAt = (x: number, y: number, w: number, h: number) => bbox(rectPoly(x, y, w, h))
 

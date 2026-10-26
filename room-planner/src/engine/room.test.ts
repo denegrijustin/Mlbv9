@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { area, bbox } from '../geometry/polygon'
-import { createSeedRoom, makeBuiltIn, makeDoor, makePillar, makeWallTV, makeWindow } from '../model/defaults'
+import { makeBuiltIn, makeDoor, makePillar, makeWallTV, makeWindow } from '../model/defaults'
 import type { Room } from '../model/types'
 import { OPEN_EXTENT, resolveArchitecture, swingSector } from './room'
+import { baselineSeedRoom } from '../model/testSeed'
 
-const room = (over: Partial<Room> = {}): Room => ({ ...createSeedRoom(), width: 101, depth: 120, items: [], ...over })
+const room = (over: Partial<Room> = {}): Room => ({ ...baselineSeedRoom(), width: 101, depth: 120, items: [], ...over })
 
 describe('seed office', () => {
-  const seed = resolveArchitecture(createSeedRoom())
+  const seed = resolveArchitecture(baselineSeedRoom())
   it('has only the supplied 101" dimension; nothing else is invented', () => {
     expect(seed.room.width).toBe(101)
     expect(seed.room.depth).toBeNull()

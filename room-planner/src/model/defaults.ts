@@ -95,7 +95,7 @@ export function createSeedRoom(): Room {
     id: newId('room'),
     name: 'Office',
     width: 101,
-    depth: null,
+    depth: 102,
     ceilingHeight: null,
     floor: 'carpet',
     wallThickness: 4.5,
@@ -103,7 +103,7 @@ export function createSeedRoom(): Room {
     items: [
       makeWindow({ name: 'Window' }),
       makeDoor({ name: 'Doorway', style: 'opening' }),
-      makePillar({ name: 'Wood pillar / column' }),
+      makePillar({ name: 'Wood pillar / column', width: 24 }),
       makeBuiltIn({ name: 'Built-in bookcases', kind: 'bookcase' }),
       makeWallTV({ name: 'Wall-mounted TV' }),
     ],
