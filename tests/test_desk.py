@@ -512,3 +512,65 @@ class CausalDatasetTests(unittest.TestCase):
         b = build_dataset_da(rt2, da)
         ia, ib = a["t"].index(t), b["t"].index(t)
         self.assertEqual(b["y_basis"][ib], 1.0)
+
+
+class IntradayTests(unittest.TestCase):
+    def _prices(self, n=4000, seed=1):
+        import numpy as np
+        rng = np.random.default_rng(seed)
+        return 40 + 30 * np.sin(np.arange(n) / 40.0) + rng.normal(0, 5, n)
+
+    def test_policy_respects_soc_and_power_bounds(self):
+        import numpy as np
+        from desk.intraday import run_policy, persistence_rule
+        from desk.battery import Battery
+        p = self._prices(); b = Battery()
+        socs = []
+        base = persistence_rule(p, 0.2, 0.8, b)
+
+        def decide(k, soc):
+            socs.append(soc); return base(k, soc)
+
+        rev = run_policy(p, decide, 2500, 3900, b)
+        self.assertTrue(all(-1e-9 <= s <= b.energy_mwh + 1e-9 for s in socs))
+        self.assertLessEqual(np.abs(rev / np.maximum(np.abs(p[2500:3900]), 1e-9)).max(), b.power_mw / 12 + 1e-6 + b.degr_usd_mwh)
+
+    def test_decisions_do_not_depend_on_current_or_future_prices(self):
+        import numpy as np
+        from desk.intraday import persistence_rule
+        p = self._prices(); q = p.copy()
+        q[3000:] += 500                                        # change prices at/after step 3000
+        a, b_ = persistence_rule(p, 0.2, 0.8), persistence_rule(q, 0.2, 0.8)
+        for k in range(2500, 3001):                            # decision at 3000 may only see < 3000
+            self.assertEqual(a(k, 0.0), b_(k, 0.0))
+
+    def test_spread_guard_blocks_thin_band(self):
+        import numpy as np
+        from desk.intraday import persistence_rule
+        p = 40 + np.random.default_rng(0).normal(0, 0.1, 4000)
+        d = persistence_rule(p, 0.2, 0.8)
+        self.assertTrue(all(d(k, 1.0) == 0 for k in range(2500, 2700)))
+
+    def test_charge_then_discharge_accounting(self):
+        from desk.intraday import run_policy
+        from desk.battery import Battery
+        import numpy as np
+        b = Battery()
+        p = np.concatenate([np.full(36, 10.0), np.full(60, 100.0)])
+        rev = run_policy(p, lambda k, s: -1 if k < 36 else 1, 0, 96, b)
+        bought = -rev[:36].sum() / 10.0                        # MWh drawn from the grid to fill 2 MWh of storage
+        self.assertAlmostEqual(bought, b.energy_mwh / b.eta, places=6)
+        delivered = (rev[36:].sum() / 1.0 + 0) / 1.0
+        # all stored energy leaves: delivered MWh = 2 * eta, each earning 100 - wear
+        self.assertAlmostEqual(rev[36:].sum(), b.energy_mwh * b.eta * (100.0 - b.degr_usd_mwh), places=6)
+
+    def test_model_rule_only_acts_on_agreement(self):
+        import numpy as np
+        from desk.intraday import persistence_rule, model_rule
+        p = self._prices()
+        pers = persistence_rule(p, 0.2, 0.8)
+        up = np.full(len(p), 0.9); down = np.full(len(p), 0.1)
+        for k in range(2500, 3000):
+            a = pers(k, 0.0)
+            self.assertEqual(model_rule(p, up, 0.2, 0.8)(k, 0.0), a if a <= 0 else 0)   # 'up' blocks discharge
+            self.assertEqual(model_rule(p, down, 0.2, 0.8)(k, 0.0), a if a >= 0 else 0)  # 'down' blocks charge
