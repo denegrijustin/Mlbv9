@@ -415,3 +415,30 @@ class PowerResearchTests(unittest.TestCase):
         full = len(build_dataset(rt, da)["t"])
         del rt[datetime(2026, 1, 5, 12, 30)]
         self.assertLess(len(build_dataset(rt, da)["t"]), full)
+
+
+class CaisoErrorTests(unittest.TestCase):
+    def _err_zip(self, desc):
+        import io, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("r.xml", f"<m:OASISReport><m:ERROR><m:ERR_CODE>1004</m:ERR_CODE><m:ERR_DESC>{desc}</m:ERR_DESC></m:ERROR></m:OASISReport>")
+        return buf.getvalue()
+
+    def test_error_xml_raises_oasis_error(self):
+        from desk.fetch_caiso import parse_zip, OasisError
+        with self.assertRaises(OasisError) as c:
+            parse_zip(self._err_zip("Data can be requested for period of 31 days only"))
+        self.assertIn("31 days", str(c.exception))
+
+    def test_refusal_is_not_retried(self):
+        from datetime import date
+        from desk.fetch_caiso import fetch_chunk
+        sleeps = []
+        r = fetch_chunk("DAM", "N", date(2026, 1, 1), date(2026, 2, 1), get=lambda u: self._err_zip("nope"), sleep=sleeps.append)
+        self.assertIsNone(r)
+        self.assertEqual(sleeps, [])
+
+    def test_dam_chunks_stay_within_30_days(self):
+        from desk.fetch_caiso import SPECS
+        self.assertLessEqual(SPECS["DAM"][1], 30)

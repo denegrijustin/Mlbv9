@@ -3,14 +3,14 @@
 Usage: python -m desk.fetch_caiso [node] [start YYYY-MM-DD] [end YYYY-MM-DD] [out_dir]
 Defaults: TH_NP15_GEN-APND, one year back from 2026-10-20, data/caiso
 Writes <out_dir>/<node>_RTM.csv (5-minute) and <node>_DAM.csv (hourly): columns ts_utc,price  ($/MWh).
-OASIS wants a few seconds between requests; range limits seen in practice: 7 days (RTM), 31 days (DAM).
+OASIS wants a few seconds between requests; range limits in practice: 7 days (RTM), 30 days (DAM).
 """
 import csv, io, os, sys, time, urllib.request, zipfile
 from datetime import date, datetime, timedelta
 
 URL = ("https://oasis.caiso.com/oasisapi/SingleZip?queryname={q}&startdatetime={a}&enddatetime={b}"
        "&version=1&market_run_id={m}&node={n}&resultformat=6")
-SPECS = {"RTM": ("PRC_INTVL_LMP", 7), "DAM": ("PRC_LMP", 31)}
+SPECS = {"RTM": ("PRC_INTVL_LMP", 7), "DAM": ("PRC_LMP", 30)}   # 31 days fails across a DST change: OASIS counts local time
 
 
 def chunk_ranges(start: date, end: date, days: int):
@@ -21,6 +21,10 @@ def chunk_ranges(start: date, end: date, days: int):
         d = e
 
 
+class OasisError(ValueError):
+    """The server understood the request and refused it; retrying the same request cannot help."""
+
+
 def parse_zip(blob: bytes):
     """Return [(ts_utc_iso, price)] for LMP rows only. Raises ValueError if the payload isn't a zip."""
     try:
@@ -29,6 +33,11 @@ def parse_zip(blob: bytes):
         raise ValueError("not a zip (empty body or an error page)")
     out = []
     for name in z.namelist():
+        if name.endswith(".xml"):   # OASIS reports errors as an XML file inside the zip
+            txt = z.read(name).decode("utf8", "replace")
+            if "<m:ERR_DESC>" in txt:
+                raise OasisError(txt.split("<m:ERR_DESC>")[1].split("</m:ERR_DESC>")[0])
+            continue
         for r in csv.DictReader(io.TextIOWrapper(z.open(name))):
             if r.get("LMP_TYPE") != "LMP":
                 continue
@@ -54,6 +63,9 @@ def fetch_chunk(market, node, a: date, b: date, get=http_get, sleep=time.sleep, 
             if rows:
                 return rows
             err = "no LMP rows"
+        except OasisError as e:
+            print(f"  OASIS refused {market} {a}..{b}: {e}", flush=True)
+            return None
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
         print(f"  retry {k + 1}/{tries} {market} {a}..{b}: {err}", flush=True)

@@ -79,24 +79,33 @@ def walk_forward(X, y, hour):
 
 
 def evaluate(X, y, hour, label):
+    """Also scores a persistence baseline (logistic on the single feature rt_vs_da_now: 'the last RT price
+    vs this hour's DA price'). Added after a first run showed AUC ~0.9: that signal is trivially known to any
+    real-time dispatcher, so beating flat/hour-of-day baselines alone proves nothing."""
     idx, pm, pg, ph, yt = walk_forward(X, y, hour)
+    _, pp, _, _, _ = walk_forward(X[:, [NAMES.index("rt_vs_da_now")]], y, hour)
+    bp = (pp - yt) ** 2
     bm, bg, bh = (pm - yt) ** 2, (pg - yt) ** 2, (ph - yt) ** 2
     block = 24
     g_ci = block_bootstrap(lambda i: bg[i].mean() - bm[i].mean(), len(yt), block=block)
     h_ci = block_bootstrap(lambda i: bh[i].mean() - bm[i].mean(), len(yt), block=block)
     a_ci = block_bootstrap(lambda i: auc(pm[i], yt[i]), len(yt), block=block)
+    p_ci = block_bootstrap(lambda i: bp[i].mean() - bm[i].mean(), len(yt), block=block)
+    print(f"{label:6s} persistence baseline: brier={bp.mean():.4f} AUC={auc(pp, yt):.3f} | "
+          f"model gain vs persistence {bp.mean() - bm.mean():+.4f} [{p_ci[0]:+.4f},{p_ci[1]:+.4f}]")
     print(f"{label:6s} n={len(yt)} base-rate={yt.mean():.3f} | brier model={bm.mean():.4f} flat={bg.mean():.4f} hour-of-day={bh.mean():.4f}")
     print(f"       gain vs flat {bg.mean() - bm.mean():+.4f} [{g_ci[0]:+.4f},{g_ci[1]:+.4f}]   "
           f"gain vs hour-of-day {bh.mean() - bm.mean():+.4f} [{h_ci[0]:+.4f},{h_ci[1]:+.4f}]   "
           f"AUC {auc(pm, yt):.3f} [{a_ci[0]:.3f},{a_ci[1]:.3f}]")
-    return {"gain_flat": bg.mean() - bm.mean(), "gain_hour": bh.mean() - bm.mean(), "hour_ci": h_ci, "auc": auc(pm, yt)}
+    return {"gain_flat": bg.mean() - bm.mean(), "gain_hour": bh.mean() - bm.mean(), "hour_ci": h_ci, "auc": auc(pm, yt),
+            "gain_persist": bp.mean() - bm.mean(), "persist_ci": p_ci, "auc_persist": auc(pp, yt)}
 
 
 def main(data_dir="data/caiso", node="TH_NP15_GEN-APND"):
     ds = build_dataset(_load(f"{data_dir}/{node}_RTM.csv"), _load(f"{data_dir}/{node}_DAM.csv"))
     n = len(ds["t"])
     print(f"{n} usable hours {ds['t'][0]}..{ds['t'][-1]}  features={len(NAMES)}")
-    print("real skill = gain vs hour-of-day with a CI excluding 0\n")
+    print("real skill = gain vs PERSISTENCE with a CI excluding 0 (the other baselines are too easy)\n")
     for tgt in ("y_basis", "y_spike"):
         evaluate(ds["X"], ds[tgt], ds["hour"], tgt[2:])
 
