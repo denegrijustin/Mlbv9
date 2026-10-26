@@ -322,3 +322,96 @@ class ResearchTests(unittest.TestCase):
         idx, *_ = research.walk_forward(X, y)
         self.assertGreaterEqual(idx.min(), research.WARMUP)
         self.assertLess(idx.max(), len(y) - research.H)
+
+
+class CaisoTests(unittest.TestCase):
+    def _zip(self, rows):
+        import io, zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("x.csv", "INTERVALSTARTTIME_GMT,LMP_TYPE,MW\n" + "\n".join(rows) + "\n")
+        return buf.getvalue()
+
+    def test_parse_keeps_lmp_only_and_sorts(self):
+        from desk.fetch_caiso import parse_zip
+        r = parse_zip(self._zip(["2026-09-01T07:05:00-00:00,LMP,50.8", "2026-09-01T07:00:00-00:00,LMP,50.2",
+                                 "2026-09-01T07:00:00-00:00,MCC,1.0", "2026-09-01T07:10:00-00:00,LMP,bad"]))
+        self.assertEqual(r, [("2026-09-01T07:00:00Z", 50.2), ("2026-09-01T07:05:00Z", 50.8)])
+
+    def test_parse_rejects_non_zip(self):
+        from desk.fetch_caiso import parse_zip
+        with self.assertRaises(ValueError):
+            parse_zip(b"")
+
+    def test_chunking_covers_range_exactly(self):
+        from datetime import date
+        from desk.fetch_caiso import chunk_ranges
+        c = list(chunk_ranges(date(2026, 1, 1), date(2026, 1, 20), 7))
+        self.assertEqual((c[0][0], c[-1][1], len(c)), (date(2026, 1, 1), date(2026, 1, 20), 3))
+        self.assertTrue(all(a[1] == b[0] for a, b in zip(c, c[1:])))
+
+    def test_retries_then_gives_up_visibly(self):
+        from datetime import date
+        from desk.fetch_caiso import fetch_chunk
+        sleeps = []
+        r = fetch_chunk("RTM", "N", date(2026, 1, 1), date(2026, 1, 2), get=lambda u: b"", sleep=sleeps.append, tries=3)
+        self.assertIsNone(r)
+        self.assertEqual(sleeps, [10, 20, 40])
+
+    def test_success_after_retry(self):
+        from datetime import date
+        from desk.fetch_caiso import fetch_chunk
+        calls = iter([b"", self._zip(["2026-09-01T07:00:00-00:00,LMP,1.5"])])
+        r = fetch_chunk("DAM", "N", date(2026, 1, 1), date(2026, 1, 2), get=lambda u: next(calls), sleep=lambda s: None)
+        self.assertEqual(r, [("2026-09-01T07:00:00Z", 1.5)])
+
+
+class PowerResearchTests(unittest.TestCase):
+    def _series(self, days=240, persist=0.0, seed=4):
+        """DA hourly with a daily shape; RT 5-min = DA + hourly basis. persist=AR coefficient of the hourly basis."""
+        import numpy as np
+        from datetime import datetime, timedelta
+        rng = np.random.default_rng(seed)
+        t0 = datetime(2026, 1, 1)
+        da, rt, basis = {}, {}, 0.0
+        for h in range(days * 24):
+            t = t0 + timedelta(hours=h)
+            da[t] = 40 + 25 * np.sin(2 * np.pi * (t.hour - 9) / 24) + rng.normal(0, 4)
+            basis = persist * basis + rng.normal(0, 8)
+            for k in range(12):
+                rt[t + timedelta(minutes=5 * k)] = da[t] + basis + rng.normal(0, 3)
+        return rt, da
+
+    def test_no_lookahead_in_features(self):
+        import numpy as np
+        from datetime import datetime, timedelta
+        from desk.power_research import build_dataset
+        rt, da = self._series(days=20)
+        a = build_dataset(rt, da)
+        cut = datetime(2026, 1, 12)
+        rt2 = {k: (v + 500 if k >= cut else v) for k, v in rt.items()}
+        da2 = {k: (v + 500 if k > cut else v) for k, v in da.items()}
+        b = build_dataset(rt2, da2)
+        n = sum(1 for t in a["t"] if t <= cut)
+        self.assertGreater(n, 100)
+        np.testing.assert_allclose(a["X"][:n], b["X"][:n])
+
+    def test_detects_persistent_basis(self):
+        from desk.power_research import build_dataset, walk_forward, auc
+        ds = build_dataset(*self._series(days=300, persist=0.8))
+        idx, pm, pg, ph, yt = walk_forward(ds["X"], ds["y_basis"], ds["hour"])
+        self.assertGreater(auc(pm, yt), 0.62)
+
+    def test_independent_noise_has_no_skill(self):
+        from desk.power_research import build_dataset, walk_forward, auc
+        ds = build_dataset(*self._series(days=300, persist=0.0))
+        idx, pm, pg, ph, yt = walk_forward(ds["X"], ds["y_basis"], ds["hour"])
+        self.assertLess(abs(auc(pm, yt) - 0.5), 0.06)
+
+    def test_gaps_drop_hours_not_filled(self):
+        from datetime import datetime
+        from desk.power_research import build_dataset
+        rt, da = self._series(days=10)
+        full = len(build_dataset(rt, da)["t"])
+        del rt[datetime(2026, 1, 5, 12, 30)]
+        self.assertLess(len(build_dataset(rt, da)["t"]), full)
