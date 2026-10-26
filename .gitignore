@@ -1,10 +1,1 @@
-desk_log.jsonl
 __pycache__/
-demo_ticks.csv
-live_*.csv
-*.gaps.log
-data/
-reports/
-shadow/
-.wrangler/
-node_modules/
