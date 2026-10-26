@@ -8,7 +8,7 @@ from .state import Tape, build_state
 from .questions import BATTERIES
 from .judge import MockJudge
 from . import policy
-from .risk import RiskEngine, Limits
+from .risk import RiskEngine, Limits, exit_reason
 from .broker import PaperBroker
 from .book import Book
 from .logs import Log
@@ -32,9 +32,11 @@ def simulate(mode="shadow", ticks=2000, seed=7):
         pending = [x for x in pending if x[0] > t]
         if len(tape.mids) < 61:
             continue
-        # exit first: held positions close on a fixed number of ticks (placeholder for a numeric exit rule)
-        if book.position and t - book.position >= 30:
-            broker.close(price); book.position = None
+        # exit first; the numeric rule has final authority over any judge answer
+        if book.position is not None:
+            why = exit_reason(tape, broker.entry, max_hold=30, held=t - book.position)
+            if why:
+                broker.close(price); book.position = None; log("exit", t=t, reason=why)
         if not book.can_scan():
             continue
         state = build_state(tape, broker.qty, min(0, broker.equity(price)))

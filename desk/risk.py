@@ -34,3 +34,20 @@ class RiskEngine:
         if expected_edge_bps < cost_bps + l.min_edge_bps:
             return "economics"
         return None
+
+
+def exit_reason(tape, entry_price, *, stop_pct=0.004, liq_floor=0.2, short=6, long=60, max_hold=None, held=0):
+    """Exit on a number, final authority. Returns a reason string or None to keep holding.
+
+    Missing data closes the position: a position you can't measure is a position you don't hold.
+    """
+    if not tape.mids or len(tape.bid_sizes) < long:
+        return "no_data"
+    if tape.mids[-1] / entry_price - 1 < -stop_pct:
+        return "stop"
+    depth = [b + a for b, a in zip(tape.bid_sizes, tape.ask_sizes)]
+    if sum(depth[-short:]) / short < liq_floor * sum(depth[-long:]) / long:
+        return "liquidity_collapse"
+    if max_hold is not None and held >= max_hold:
+        return "max_hold"
+    return None
