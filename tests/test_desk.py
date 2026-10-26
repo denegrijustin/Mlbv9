@@ -214,3 +214,20 @@ class LiveTests(unittest.TestCase):
         i = iter(range(5))
         record("LIT", out, every=1, rows=5, fetch=lambda s: self.Q(t=str(next(i))), sleep=lambda s: None)
         self.assertEqual(len(list(ticks_from_csv(out))), 5)
+
+
+class NasdaqParseTests(unittest.TestCase):
+    def test_parse_reverses_and_cleans(self):
+        from desk.fetch_nasdaq import parse_rows
+        p = {"data": {"tradesTable": {"rows": [
+            {"date": "10/23/2026", "close": "$60.68", "volume": "170,982", "open": "60.29", "high": "60.97", "low": "60.135"},
+            {"date": "bad"},
+            {"date": "10/22/2026", "close": "N/A", "volume": "1", "open": "1", "high": "1", "low": "1"},
+            {"date": "10/21/2026", "close": "59", "volume": "1,000", "open": "58", "high": "60", "low": "57"}]}}}
+        r = parse_rows(p)
+        self.assertEqual([x[0] for x in r], ["2026-10-21", "2026-10-23"])
+        self.assertEqual(r[1][4:], (60.68, 170982.0))
+
+    def test_parse_empty(self):
+        from desk.fetch_nasdaq import parse_rows
+        self.assertEqual(parse_rows({}), [])
