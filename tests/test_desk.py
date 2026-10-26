@@ -159,3 +159,58 @@ class OhlcvTests(unittest.TestCase):
         pnl = run_gambler(bars_to_ticks(self._bars(rows)), "shadow", log=Log(os.path.join(d, "l.jsonl")))
         self.assertEqual(pnl, 0.0)
         self.assertTrue(os.path.getsize(os.path.join(d, "l.jsonl")) > 0)
+
+
+class LiveTests(unittest.TestCase):
+    Q = lambda self, bp=10.0, ap=10.02, bs=3, as_=5, t="t1": {"quotes": {"LIT": {"bp": bp, "ap": ap, "bs": bs, "as": as_, "t": t}}}
+
+    def test_parse_good_and_bad(self):
+        from desk.live import parse_quote
+        row, why = parse_quote(self.Q(), "LIT")
+        self.assertEqual((row[1], row[3], row[4], why), (10.01, 3.0, 5.0, None))
+        self.assertEqual(parse_quote(self.Q(ap=9.9), "LIT")[1], "crossed")
+        self.assertEqual(parse_quote(self.Q(bs=0), "LIT")[1], "empty_side")
+        self.assertEqual(parse_quote({"quotes": {}}, "LIT")[1], "no_quote")
+        self.assertEqual(parse_quote({"quotes": {"LIT": {"bp": 1}}}, "LIT")[1], "malformed")
+
+    def test_record_dedupes_stale_and_logs_gaps(self):
+        import os, tempfile, urllib.error
+        from desk.live import record
+        seq = iter([self.Q(t="a"), self.Q(t="a"), self.Q(ap=9.0, t="b"), self.Q(t="c")])
+
+        def fetch(sym):
+            try:
+                return next(seq)
+            except StopIteration:
+                raise urllib.error.HTTPError("u", 429, "rate", {}, None)
+
+        out = os.path.join(tempfile.mkdtemp(), "live.csv")
+        sleeps = []
+        n = record("LIT", out, every=1, rows=2, fetch=fetch, sleep=sleeps.append)
+        self.assertEqual(n, 2)                                   # 'a' once (dup skipped), 'c'; crossed 'b' is a gap
+        self.assertEqual(len(open(out).read().splitlines()), 3)  # header + 2
+        self.assertIn("crossed", open(out + ".gaps.log").read())
+
+    def test_backoff_on_429(self):
+        import os, tempfile, urllib.error
+        from desk.live import record
+        calls = {"n": 0}
+
+        def fetch(sym):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise urllib.error.HTTPError("u", 429, "rate", {}, None)
+            return self.Q()
+
+        sleeps = []
+        record("LIT", os.path.join(tempfile.mkdtemp(), "l.csv"), every=1, rows=1, fetch=fetch, sleep=sleeps.append)
+        self.assertEqual(sleeps[:3], [2, 4, 8])
+
+    def test_replay_reads_recorded_file(self):
+        import os, tempfile
+        from desk.live import record
+        from desk.replay import ticks_from_csv
+        out = os.path.join(tempfile.mkdtemp(), "l.csv")
+        i = iter(range(5))
+        record("LIT", out, every=1, rows=5, fetch=lambda s: self.Q(t=str(next(i))), sleep=lambda s: None)
+        self.assertEqual(len(list(ticks_from_csv(out))), 5)
