@@ -231,3 +231,44 @@ class NasdaqParseTests(unittest.TestCase):
     def test_parse_empty(self):
         from desk.fetch_nasdaq import parse_rows
         self.assertEqual(parse_rows({}), [])
+
+
+class CalibrateTests(unittest.TestCase):
+    def _pairs(self, skill, n=4000, seed=5):
+        import random
+        rng = random.Random(seed)
+        out = []
+        for _ in range(n):
+            p = rng.choice([0.02, 0.1, 0.3, 0.5, 0.7, 0.9, 0.98])
+            true = 0.5 + skill * (p - 0.5)
+            out.append((p, int(rng.random() < true)))
+        return out
+
+    def test_shrinks_overconfidence(self):
+        from desk.calibrate import evaluate
+        r, cal = evaluate(self._pairs(skill=0.3))
+        self.assertLess(cal.a, 0.6)
+        self.assertLess(r["test_brier_platt"], r["test_brier_raw"])
+
+    def test_no_skill_collapses_to_base_rate(self):
+        from desk.calibrate import evaluate
+        r, cal = evaluate(self._pairs(skill=0.0))
+        self.assertLess(abs(cal.a), 0.25)
+        self.assertAlmostEqual(r["test_brier_platt"], r["test_brier_base_rate"], delta=0.01)
+
+    def test_well_calibrated_left_alone(self):
+        from desk.calibrate import evaluate
+        r, cal = evaluate(self._pairs(skill=1.0))
+        self.assertAlmostEqual(cal.a, 1.0, delta=0.25)
+
+    def test_calibrated_judge_wraps_and_pins_version(self):
+        from desk.calibrate import CalibratedJudge, Platt
+        from desk.judge import MockJudge
+        from desk.questions import GAMBLER
+        st = {"mid": 100, "spread_bps": 3, "imbalance": 0.9, "realized_vol": 0.001, "inventory": 0, "drawdown": 0,
+              "ret_5": 0.01, "ret_20": 0.02, "ret_60": 0.03}
+        r = CalibratedJudge(MockJudge(), {"buy_pressure": Platt(0.1, 0.0)}).ask(st, GAMBLER)
+        a = r["answers"]["buy_pressure"]
+        self.assertIn("p_raw", a)
+        self.assertLess(abs(a["p"] - 0.5), abs(a["p_raw"] - 0.5))
+        self.assertTrue(r["version"].endswith("+platt"))
