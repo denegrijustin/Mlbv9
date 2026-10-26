@@ -1,4 +1,5 @@
 """Hard vetoes, deterministic, checked before every order. No model gets a vote."""
+from __future__ import annotations
 from dataclasses import dataclass
 
 
