@@ -1,0 +1,48 @@
+# Shadow-only forward test runner. No orders, no keys. See desk/SHADOW_PROTOCOL.md.
+# Records delayed public quote snapshots for LIT/ALB/SQM every 5 minutes (the poller skips anything that is not
+# 'Open'), and rebuilds the simulated daily reports after each close. Data lives on the shadow-data branch.
+# To stop: Actions tab -> "shadow" -> "..." menu -> Disable workflow.
+name: shadow
+on:
+  schedule:
+    - cron: "*/5 13-21 * * 1-5"     # UTC; covers the US session in both daylight and standard time
+    - cron: "40 21 * * 1-5"         # after the close in both: rebuild reports
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: shadow
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: shadow-data
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: code
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record quotes
+        if: github.event.schedule != '40 21 * * 1-5'
+        run: cd code && python -m desk.shadow record LIT:etf ALB SQM --dir ../shadow
+      - name: Rebuild reports
+        if: github.event.schedule == '40 21 * * 1-5' || github.event_name == 'workflow_dispatch'
+        run: cd code && python -m desk.shadow report LIT ALB SQM --dir ../shadow
+      - name: Commit data
+        run: |
+          git config user.name "shadow-bot"
+          git config user.email "shadow-bot@users.noreply.github.com"
+          git add shadow
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "shadow $(date -u +%FT%TZ)"
+          for i in 1 2 3; do
+            git pull --rebase origin shadow-data && git push origin HEAD:shadow-data && exit 0
+            sleep 5
+          done
+          echo "push failed after 3 attempts"; exit 1
