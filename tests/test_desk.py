@@ -85,3 +85,32 @@ class GridTests(unittest.TestCase):
     def test_judge_variant_not_worse_than_unprotected(self):
         from desk.run_house import simulate_house
         self.assertGreaterEqual(simulate_house("judge")[0], simulate_house("none")[0])
+
+
+class ReplayTests(unittest.TestCase):
+    def test_csv_roundtrip_matches_live_generator(self):
+        import os, tempfile
+        from desk.replay import write_csv, ticks_from_csv
+        from desk.run import gen_ticks, run_gambler
+        from desk.logs import Log
+        d = tempfile.mkdtemp(); p = os.path.join(d, "t.csv")
+        write_csv(p, gen_ticks(500))
+        a = run_gambler(ticks_from_csv(p), "paper", log=Log(os.path.join(d, "a.jsonl")))
+        b = run_gambler(gen_ticks(500), "paper", log=Log(os.path.join(d, "b.jsonl")))
+        self.assertAlmostEqual(a, b, places=6)
+
+    def test_bad_row_rejected(self):
+        import os, tempfile
+        from desk.replay import ticks_from_csv
+        p = os.path.join(tempfile.mkdtemp(), "bad.csv")
+        open(p, "w").write("mid,spread,bid_size,ask_size\n100,0.03,nan,5\n")
+        with self.assertRaises(ValueError):
+            list(ticks_from_csv(p))
+
+    def test_empty_stream_is_safe(self):
+        from desk.run import run_gambler
+        from desk.run_house import run_house
+        import os, tempfile
+        from desk.logs import Log
+        self.assertEqual(run_gambler(iter([]), log=Log(os.path.join(tempfile.mkdtemp(), "x"))), 0.0)
+        self.assertEqual(run_house(iter([]))[0], 0.0)

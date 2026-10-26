@@ -16,17 +16,23 @@ from .logs import Log
 HORIZON = 5  # ticks until a "buy pressure" prediction is scored
 
 
-def simulate(mode="shadow", ticks=2000, seed=7):
-    rng = random.Random(seed)
-    tape, judge, risk, broker, book, log = Tape(), MockJudge(), RiskEngine(Limits()), PaperBroker(), Book(), Log()
-    price, drift, pending, hold = 100.0, 0.0, [], 0
+def gen_ticks(ticks, seed=7):
+    """Synthetic tick stream: (mid, spread, bid_size, ask_size)."""
+    rng, price, drift = random.Random(seed), 100.0, 0.0
     for t in range(ticks):
         if t % 100 == 0:
             drift = rng.choice([-1, 0, 1]) * 0.0004
         price *= 1 + drift + rng.gauss(0, 0.0008)
         flow = drift * 600 + rng.gauss(0, 0.3)
-        bid, ask = 100 * (1 + max(-0.9, min(0.9, flow))), 100 * (1 - max(-0.9, min(0.9, flow)))
-        tape.push(price, price * 0.0003, bid, ask)
+        yield price, price * 0.0003, 100 * (1 + max(-0.9, min(0.9, flow))), 100 * (1 - max(-0.9, min(0.9, flow)))
+
+
+def run_gambler(tick_stream, mode="shadow", judge=None, log=None):
+    tape, judge, risk, broker, book = Tape(), judge or MockJudge(), RiskEngine(Limits()), PaperBroker(), Book()
+    log = log or Log()
+    pending, price = [], None
+    for t, (price, spread, bid, ask) in enumerate(tick_stream):
+        tape.push(price, spread, bid, ask)
         for p in [x for x in pending if x[0] == t]:
             log("outcome", p=p[1], outcome=int(price > p[2]), q="buy_pressure")
         pending = [x for x in pending if x[0] > t]
@@ -52,8 +58,13 @@ def simulate(mode="shadow", ticks=2000, seed=7):
         if veto:
             log("veto", t=t, reason=veto); continue
         broker.buy(price, 500); book.position = t
-    broker.close(price)
+    if price is not None:
+        broker.close(price)
     return broker.cash_pnl
+
+
+def simulate(mode="shadow", ticks=2000, seed=7):
+    return run_gambler(gen_ticks(ticks, seed), mode)
 
 
 if __name__ == "__main__":
