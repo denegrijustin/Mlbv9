@@ -34,3 +34,10 @@ after the code was frozen. This is the question the historical tests could not a
 About 78 ticks per symbol per day x ~21 days is ~1,600 rows, but 5-tick targets overlap heavily, so the effective sample is
 a few hundred independent observations. That can detect a sizeable edge (AUC around 0.58 or more) and cannot detect a small one.
 A null result means "no large edge visible", not "no edge".
+
+## Where it runs and where to read results
+- Runner: GitHub Actions workflow `shadow` (every 5 minutes, 13:00-21:55 UTC weekdays; reports rebuilt 21:40 UTC).
+  Scheduled runs can be delayed or skipped; skipped polls leave no gap entry, only fewer rows per day.
+- Data and reports: branch `shadow-data`, folder `shadow/` (`*_quotes.csv`, `gaps.log`, `reports/<SYMBOL>/daily_report.md`).
+- Stop: Actions tab, workflow `shadow`, menu, Disable workflow. GitHub may also disable scheduled workflows on a public repo after 60 days of no repository activity.
+- Rehearsal: Oct 26-30 2026 does not count. Freeze and start the counted month on Mon Nov 2 (after reviewing book vs proxy mix and run reliability).
