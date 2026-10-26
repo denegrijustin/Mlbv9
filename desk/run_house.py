@@ -24,7 +24,8 @@ def run_house(tick_stream, variant="judge", center=100.0, judge=None, log=None):
     """variant: 'none' | 'guard' | 'judge'. Returns (equity, round_trips)."""
     tape, judge = Tape(), judge or MockJudge()
     grid, prev, price = Grid(center, 0.25), None, None
-    for t, (price, spread, bid, ask) in enumerate(tick_stream):
+    for t, tick in enumerate(tick_stream):
+        price, spread, bid, ask = tick[:4]
         tape.push(price, spread, bid, ask)
         if prev is None or len(tape.mids) < 61:
             prev = price

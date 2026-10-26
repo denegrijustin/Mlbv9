@@ -30,8 +30,19 @@ def gen_ticks(ticks, seed=7):
 def run_gambler(tick_stream, mode="shadow", judge=None, log=None):
     tape, judge, risk, broker, book = Tape(), judge or MockJudge(), RiskEngine(Limits()), PaperBroker(), Book()
     log = log or Log()
-    pending, price = [], None
-    for t, (price, spread, bid, ask) in enumerate(tick_stream):
+    pending, price, cur_day, day_start_eq = [], None, None, 0.0
+    for t, tick in enumerate(tick_stream):
+        price, spread, bid, ask = tick[:4]
+        ts = tick[4] if len(tick) > 4 else None
+        if ts is not None:
+            day = str(ts)[:10]
+            if cur_day is not None and day != cur_day:     # mark the book at the previous day's last tick
+                log("day_close", date=cur_day, price=last_price, equity=broker.equity(last_price), cash_pnl=broker.cash_pnl)
+            if cur_day is not None and day != cur_day:     # new market day: daily loss is measured from today's open
+                day_start_eq = broker.equity(last_price)
+                risk.new_day()
+            cur_day, log.now = day, ts
+        last_price = price
         tape.push(price, spread, bid, ask)
         for p in [x for x in pending if x[0] == t]:
             log("outcome", p=p[1], outcome=int(price > p[2]), q="buy_pressure")
@@ -42,7 +53,9 @@ def run_gambler(tick_stream, mode="shadow", judge=None, log=None):
         if book.position is not None:
             why = exit_reason(tape, broker.entry, max_hold=30, held=t - book.position)
             if why:
-                broker.close(price); book.position = None; log("exit", t=t, reason=why)
+                f = broker.close(price); book.position = None
+                log("exit", t=t, reason=why)
+                log("fill", side="sell", price=price, qty=f["qty"], net=f["net"], cash_pnl=broker.cash_pnl)
         if not book.can_scan():
             continue
         state = build_state(tape, broker.qty, min(0, broker.equity(price)))
@@ -53,11 +66,14 @@ def run_gambler(tick_stream, mode="shadow", judge=None, log=None):
         log("decision", t=t, state=state, answers=ans, version=resp["version"], action=action, mode=mode)
         if action != "long" or mode == "shadow":
             continue
-        veto = risk.check(notional=500, leverage=1, daily_pnl=broker.equity(price),
+        veto = risk.check(notional=500, leverage=1, daily_pnl=broker.equity(price) - day_start_eq,
                           expected_edge_bps=25, model_version=resp["version"])
         if veto:
             log("veto", t=t, reason=veto); continue
         broker.buy(price, 500); book.position = t
+        log("fill", side="buy", price=price, qty=broker.qty, cash_pnl=broker.cash_pnl)
+    if cur_day is not None:
+        log("day_close", date=cur_day, price=last_price, equity=broker.equity(last_price), cash_pnl=broker.cash_pnl)
     if price is not None:
         broker.close(price)
     return broker.cash_pnl

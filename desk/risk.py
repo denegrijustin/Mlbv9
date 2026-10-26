@@ -11,12 +11,18 @@ class Limits:
     gas_usd: float = 0.0
     min_edge_bps: float = 8.0
     pinned_version: str = "mock-0.1"
+    resume_next_day: bool = True   # False = a loss halt stays until a human clears it (use this live)
 
 
 class RiskEngine:
     def __init__(self, limits: Limits):
         self.l = limits
         self.halted = False
+
+    def new_day(self):
+        """Call at each new market day. Clears a loss halt only if the limits allow automatic resume."""
+        if self.l.resume_next_day:
+            self.halted = False
 
     def check(self, *, notional, leverage, daily_pnl, expected_edge_bps, model_version, exposure=0.0) -> str | None:
         """Return a veto reason, or None if the order may proceed."""

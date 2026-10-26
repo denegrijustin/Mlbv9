@@ -85,7 +85,21 @@ All of the following, decided by a human after reading the month's report:
 5. Trading-only credentials, withdrawals disabled, hard daily-loss limit, kill switch tested, human approval for every risk-limit change.
 6. For Fidelity: human-in-the-loop tickets only (section 1).
 
-## 6. Decisions needed
+## 6. Decisions so far
+
+- **What to run:** pipeline test with a trivial strategy first, then the lithium Gambler in shadow mode only. (Agreed.)
+- **Runtime host:** must be free. Candidates, none verified here: the owner's own machine with cron/systemd (free, but sleeps and reboots), or a scheduled GitHub Actions workflow that records a snapshot every few minutes and commits it to a data branch (free tier limits apply, no continuous process, cron can be delayed). Not a paid VM.
+- **Kill switch:** owned by the project owner (single human). Single point of failure: the plan should add a second path to stop the runtime that works from a phone, and the runtime must fail safe (halt, not trade) when it cannot reach its own heartbeat or state store.
+- **Broker for the paper month:** still open. Alpaca paper was recommended but has real weaknesses (optimistic paper fills, IEX-only free data, an API path Fidelity cannot use, one more account to secure). A shadow-only forward test needs no broker at all and tests the actual open question (is there an edge?); build execution only if a signal survives.
+
+## 7. Daily report
+
+`python -m desk.daily_report desk_log.jsonl --capital 10000 --target-pct 2 --period-days 21` writes `reports/daily_report.md` and `.csv`:
+equity, day PnL, cumulative return, drawdown, buy-and-hold benchmark, trades, wins, signals, vetoes, data gaps, progress vs an optional target path, calibration to date, and a verdict line that refuses to claim edge on fewer than 60 trading days.
+
+Known limitation: with a daily-loss limit, a halt auto-clears next market day in replay (`Limits.resume_next_day=True`). For live or paper operation set it to `False` so a halt waits for the human.
+
+## 8. Open decisions
 
 - Which broker for the paper month (recommendation: Alpaca paper).
 - What to forward-test: the lithium Gambler (no edge found) or a pure pipeline test with a trivial strategy. Recommendation: the pipeline test first; use the lithium Gambler only as a shadow-mode forward check.

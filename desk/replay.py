@@ -13,14 +13,18 @@ def ticks_from_csv(path):
             row = (float(r["mid"]), float(r["spread"]), float(r["bid_size"]), float(r["ask_size"]))
             if not all(x == x and x > 0 for x in row[:1] + row[2:]):  # NaN / non-positive: refuse, don't guess
                 raise ValueError(f"bad row: {r}")
-            yield row
+            yield row + (r["ts"],) if r.get("ts") else row
 
 
 def write_csv(path, ticks):
+    ticks = iter(ticks)
+    first = next(ticks, None)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["mid", "spread", "bid_size", "ask_size"])
-        w.writerows(ticks)
+        w.writerow(["mid", "spread", "bid_size", "ask_size"] + (["ts"] if first is not None and len(first) > 4 else []))
+        if first is not None:
+            w.writerow(first)
+            w.writerows(ticks)
 
 
 def main(argv):

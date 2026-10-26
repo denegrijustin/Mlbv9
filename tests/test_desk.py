@@ -129,7 +129,7 @@ class OhlcvTests(unittest.TestCase):
         p = self._bars(["2026-01-01,10,12,8,11,1000", "2026-01-02,,,,,", "2026-01-03,10,10,10,10,0"])
         t = list(bars_to_ticks(p, spread_bps=10))
         self.assertEqual(len(t), 2)
-        mid, spread, bid, ask = t[0]
+        mid, spread, bid, ask = t[0][:4]
         self.assertEqual((mid, round(bid), round(ask)), (11, 750, 250))
         self.assertAlmostEqual(spread, 0.011)
         self.assertEqual(t[1][2], t[1][3])  # flat bar splits evenly
@@ -574,3 +574,114 @@ class IntradayTests(unittest.TestCase):
             a = pers(k, 0.0)
             self.assertEqual(model_rule(p, up, 0.2, 0.8)(k, 0.0), a if a <= 0 else 0)   # 'up' blocks discharge
             self.assertEqual(model_rule(p, down, 0.2, 0.8)(k, 0.0), a if a >= 0 else 0)  # 'down' blocks charge
+
+
+class DailyReportTests(unittest.TestCase):
+    def _events(self):
+        E = lambda event, ts, **kw: {"t": 0.0, "ts": ts, "event": event, **kw}
+        return [
+            E("decision", "2026-01-05T15:00:00Z", action="long"), E("fill", "2026-01-05T15:00:00Z", side="buy", price=100, qty=5, cash_pnl=-0.25),
+            E("day_close", None, date="2026-01-05", price=100.0, equity=-0.25, cash_pnl=-0.25),
+            E("fill", "2026-01-06T15:00:00Z", side="sell", price=102, qty=5, net=9.5, cash_pnl=9.25),
+            E("veto", "2026-01-06T16:00:00Z", reason="economics"),
+            E("day_close", None, date="2026-01-06", price=102.0, equity=9.25, cash_pnl=9.25),
+            E("day_close", None, date="2026-01-07", price=99.0, equity=9.25, cash_pnl=9.25),   # flat day, no trades
+            E("day_close", None, date="2026-01-08", price=99.0, equity=-190.75, cash_pnl=9.25),  # open position marked down
+        ]
+
+    def test_daily_rows(self):
+        from desk.daily_report import build_daily
+        r = build_daily(self._events(), capital=10_000.0)
+        self.assertEqual([x["date"] for x in r], ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"])
+        self.assertEqual([x["day_pnl"] for x in r], [-0.25, 9.5, 0.0, -200.0])
+        self.assertEqual((r[1]["trades_closed"], r[1]["wins"], r[1]["vetoes"], r[0]["signals"]), (1, 1, 1, 1))
+        self.assertAlmostEqual(r[3]["cum_return_pct"], -1.9075, places=3)
+        self.assertAlmostEqual(r[3]["benchmark_pct"], -1.0, places=3)
+        self.assertEqual(r[2]["trades_closed"], 0)                      # flat day carries equity, no trades
+        self.assertLess(r[3]["drawdown_pct"], r[1]["drawdown_pct"])      # drawdown measured from the running peak
+
+    def test_target_path(self):
+        from desk.daily_report import build_daily
+        r = build_daily(self._events(), capital=10_000.0, target_pct=4.0, period_days=4)
+        self.assertEqual([x["target_path_pct"] for x in r], [1.0, 2.0, 3.0, 4.0])
+        self.assertAlmostEqual(r[3]["vs_path_pct"], r[3]["cum_return_pct"] - 4.0, places=3)
+
+    def test_verdict_refuses_to_claim_edge_on_few_days(self):
+        from desk.daily_report import build_daily, summarize
+        ev = self._events(); r = build_daily(ev)
+        s = summarize(r, ev)
+        self.assertIn("too few", s["verdict"])
+        self.assertEqual(s["trades"], 1)
+
+    def test_empty_and_torn_logs(self):
+        import os, tempfile
+        from desk.daily_report import build_daily, load_events, summarize, render_markdown
+        self.assertEqual(build_daily([]), [])
+        self.assertEqual(summarize([], []), {"days": 0})
+        self.assertIn("No `day_close`", render_markdown([], {"days": 0}, 1000))
+        p = os.path.join(tempfile.mkdtemp(), "l.jsonl")
+        open(p, "w").write('{"event": "x", "t": 1}\n{"event": "fill", "t": ')   # crash mid-write
+        self.assertEqual(len(load_events(p)), 1)
+
+    def test_gap_counts_by_day(self):
+        import os, tempfile
+        from desk.daily_report import count_gaps
+        p = os.path.join(tempfile.mkdtemp(), "g.log")
+        open(p, "w").write("1767657600 http_429\n1767657700 crossed\n1767744000 no_quote\nbad line\n")
+        self.assertEqual(dict(count_gaps(p)), {"2026-01-06": 2, "2026-01-07": 1})
+
+    def test_end_to_end_from_runner(self):
+        import os, tempfile
+        from desk.ohlcv import bars_to_ticks
+        from desk.run import run_gambler
+        from desk.logs import Log
+        from desk.daily_report import load_events, build_daily
+        import random
+        rng, px, rows = random.Random(1), 50.0, []
+        for i in range(120):
+            o = px; px *= 1 + rng.gauss(0.0003, 0.015)
+            rows.append(f"2026-{1 + i // 28:02d}-{1 + i % 28:02d},{o},{max(o, px) * 1.005},{min(o, px) * 0.995},{px},{rng.randint(1000, 5000)}")
+        d = tempfile.mkdtemp(); bars = os.path.join(d, "b.csv")
+        open(bars, "w").write("Date,Open,High,Low,Close,Volume\n" + "\n".join(rows) + "\n")
+        log = os.path.join(d, "l.jsonl")
+        pnl = run_gambler(bars_to_ticks(bars), "paper", log=Log(log))
+        days = build_daily(load_events(log))
+        self.assertGreater(len(days), 50)
+        marked = days[-1]["cum_return_pct"] / 100 * 10_000
+        self.assertAlmostEqual(marked, pnl, delta=abs(pnl) * 0.5 + 60)   # last mark ~ final pnl (open pos liquidated after)
+
+
+class DailyLossResetTests(unittest.TestCase):
+    def test_halt_clears_next_day_when_allowed(self):
+        from desk.risk import RiskEngine, Limits
+        r = RiskEngine(Limits())
+        kw = dict(notional=1, leverage=1, expected_edge_bps=99, model_version="mock-0.1")
+        self.assertEqual(r.check(daily_pnl=-60, **kw), "daily_loss_halt")
+        self.assertEqual(r.check(daily_pnl=0, **kw), "daily_loss_halt")   # still halted within the day
+        r.new_day()
+        self.assertIsNone(r.check(daily_pnl=0, **kw))
+
+    def test_halt_stays_for_a_human_when_resume_disabled(self):
+        from desk.risk import RiskEngine, Limits
+        r = RiskEngine(Limits(resume_next_day=False))
+        kw = dict(notional=1, leverage=1, expected_edge_bps=99, model_version="mock-0.1")
+        r.check(daily_pnl=-60, **kw); r.new_day()
+        self.assertEqual(r.check(daily_pnl=0, **kw), "daily_loss_halt")
+
+    def test_runner_measures_loss_per_day_not_cumulative(self):
+        import os, tempfile, json
+        from desk.run import run_gambler
+        from desk.logs import Log
+        # a steadily falling market with bullish-looking flow loses a little every day; with per-day limits
+        # the desk must keep trading on later days instead of freezing after cumulative -$50
+        ticks = []
+        px = 100.0
+        for i in range(400):
+            px *= 0.998 if i % 3 else 1.004
+            ticks.append((px, px * 0.0003, 300.0, 100.0, f"2026-02-{1 + i // 10:02d}"))
+        log = os.path.join(tempfile.mkdtemp(), "l.jsonl")
+        run_gambler(iter(ticks), "paper", log=Log(log))
+        ev = [json.loads(l) for l in open(log)]
+        halts_days = {e["ts"][:10] for e in ev if e["event"] == "veto" and e.get("reason") == "daily_loss_halt"}
+        buy_days = {e["ts"][:10] for e in ev if e["event"] == "fill" and e["side"] == "buy"}
+        self.assertTrue(max(buy_days) > min(halts_days) if halts_days else True)

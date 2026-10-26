@@ -20,6 +20,7 @@ def bars_to_ticks(path, spread_bps=5.0):
         missing = [k for k in ("open", "high", "low", "close", "volume") if k not in cols]
         if missing:
             raise ValueError(f"missing columns: {missing}; found {list(cols)}")
+        date_col = next((cols[k] for k in ("date", "datetime", "timestamp", "time") if k in cols), None)
         for r in rd:
             try:
                 h, l, c, v = (float(r[cols[k]]) for k in ("high", "low", "close", "volume"))
@@ -30,7 +31,8 @@ def bars_to_ticks(path, spread_bps=5.0):
             v = max(v, 1.0)
             clv = 0.5 if h == l else (c - l) / (h - l)
             clv = min(max(clv, 0.01), 0.99)
-            yield c, c * spread_bps / 1e4, v * clv, v * (1 - clv)
+            tick = (c, c * spread_bps / 1e4, v * clv, v * (1 - clv))
+            yield tick + (r[date_col],) if date_col and r.get(date_col) else tick
 
 
 def main(argv):
