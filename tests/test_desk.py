@@ -442,3 +442,73 @@ class CaisoErrorTests(unittest.TestCase):
     def test_dam_chunks_stay_within_30_days(self):
         from desk.fetch_caiso import SPECS
         self.assertLessEqual(SPECS["DAM"][1], 30)
+
+
+class BatteryTests(unittest.TestCase):
+    def test_flat_prices_do_not_cycle(self):
+        from desk.battery import plan_day
+        self.assertTrue(all(abs(v) < 1e-9 for v in plan_day([40.0] * 24)))
+
+    def test_spread_charges_low_discharges_high_and_ends_empty(self):
+        from desk.battery import plan_day, Battery
+        b = Battery()
+        prices = [20.0] * 6 + [60.0] * 6 + [100.0] * 6 + [30.0] * 6
+        x = plan_day(prices, b)
+        soc = 0.0
+        for g in x:
+            soc += (-g * b.eta) if g < 0 else (-g / b.eta)
+            self.assertGreaterEqual(soc, -1e-9)
+            self.assertLessEqual(soc, b.energy_mwh + 1e-9)
+            self.assertLessEqual(abs(g), b.power_mw + 1e-9)
+        self.assertAlmostEqual(soc, 0.0, places=6)
+        self.assertGreater(sum(x[12:18]), 0)       # sells in the expensive block
+        self.assertLess(sum(x[0:6]), 0)            # buys in the cheap block
+
+    def test_round_trip_energy_matches_efficiency(self):
+        from desk.battery import plan_day, Battery
+        b = Battery()
+        x = plan_day([10.0] * 3 + [200.0] * 3 + [10.0] * 18, b)
+        bought, sold = -sum(g for g in x if g < 0), sum(g for g in x if g > 0)
+        self.assertAlmostEqual(sold / bought, b.eff_roundtrip, places=3)
+
+    def test_wear_cost_blocks_thin_spreads(self):
+        from desk.battery import plan_day
+        thin = [40.0] * 12 + [41.0] * 12            # spread smaller than losses + wear
+        self.assertTrue(all(abs(v) < 1e-9 for v in plan_day(thin)))
+
+    def test_revenue_signs(self):
+        from desk.battery import revenue, Battery
+        b = Battery()
+        self.assertAlmostEqual(float(revenue(1.0, 100.0, b)), 100 - b.degr_usd_mwh)
+        self.assertAlmostEqual(float(revenue(-1.0, 100.0, b)), -100.0)
+
+
+class CausalDatasetTests(unittest.TestCase):
+    def test_da_features_ignore_rt_after_cutoff(self):
+        import numpy as np
+        from datetime import datetime, timedelta
+        from desk.power_research import build_dataset_da
+        rt, da = PowerResearchTests()._series(days=30)
+        a = build_dataset_da(rt, da)
+        # target local day D = Jan 20 (UTC-7): cutoff = Jan 19 13:00 local = Jan 19 20:00 UTC
+        cutoff = datetime(2026, 1, 19, 20, 0)
+        rt2 = {k: (v + 777 if k >= cutoff else v) for k, v in rt.items()}
+        b = build_dataset_da(rt2, da)
+        day = [i for i, t in enumerate(a["t"]) if datetime(2026, 1, 20, 7) <= t < datetime(2026, 1, 21, 7)]
+        self.assertEqual(len(day), 24)
+        bi = {t: i for i, t in enumerate(b["t"])}
+        for i in day:
+            np.testing.assert_allclose(a["X"][i], b["X"][bi[a["t"][i]]])
+
+    def test_label_does_use_the_target_hour(self):
+        from datetime import datetime, timedelta
+        from desk.power_research import build_dataset_da
+        rt, da = PowerResearchTests()._series(days=30, persist=0.0)
+        a = build_dataset_da(rt, da)
+        t = datetime(2026, 1, 20, 12)
+        rt2 = dict(rt)
+        for k in range(12):
+            rt2[t + timedelta(minutes=5 * k)] = da[t] + 1000
+        b = build_dataset_da(rt2, da)
+        ia, ib = a["t"].index(t), b["t"].index(t)
+        self.assertEqual(b["y_basis"][ib], 1.0)

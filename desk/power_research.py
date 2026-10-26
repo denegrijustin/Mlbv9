@@ -63,6 +63,39 @@ def build_dataset(rt, da, tz_offset_hours=-7):
             "hour": np.array([r[4] for r in rows])}
 
 
+NAMES_DA = ["da_next", "da_shape", "da_vs_day", "h_sin", "h_cos", "weekend", "basis_cut3", "basis_hour7"]
+CUTOFF_LOCAL_HOUR = 13   # DA results are published ~13:00 local the day before; venue choice must use only data before this
+
+
+def build_dataset_da(rt, da, tz_offset_hours=-7):
+    """Features knowable at the DA cutoff (13:00 local the day before the target hour). No RT price from
+    the target day or the afternoon before is used. Needed for any decision made before the DA market closes
+    (e.g. 'settle this planned hour at DA or hold it for RT')."""
+    five, hour, tz = timedelta(minutes=5), timedelta(hours=1), timedelta(hours=tz_offset_hours)
+
+    def hb(u):   # hourly basis: mean RT over [u, u+1h) minus DA(u)
+        seg = [rt.get(u + k * five) for k in range(12)]
+        return None if None in seg or u not in da else float(np.mean(seg) - da[u])
+
+    rows = []
+    for t in sorted(da):
+        local = t + tz
+        midnight_utc = local.replace(hour=0, minute=0, second=0, microsecond=0) - tz
+        cutoff = midnight_utc - timedelta(hours=24 - CUTOFF_LOCAL_HOUR)
+        b3 = [hb(cutoff - k * hour) for k in (1, 2, 3)]
+        b7 = [hb(t - 24 * j * hour) for j in range(2, 9)]
+        d = [da.get(t - k * hour) for k in range(0, 25)]
+        nxt = [rt.get(t + k * five) for k in range(12)]
+        if None in b3 or None in b7 or None in d or None in nxt:
+            continue
+        lh = local.hour
+        rows.append((t, [d[0], d[0] - np.mean(d[1:4]), d[0] - np.mean(d[1:25]), np.sin(2 * np.pi * lh / 24),
+                         np.cos(2 * np.pi * lh / 24), float(local.weekday() >= 5), np.mean(b3), np.mean(b7)],
+                     float(np.mean(nxt) > d[0]), lh))
+    return {"t": [r[0] for r in rows], "X": np.array([r[1] for r in rows]),
+            "y_basis": np.array([r[2] for r in rows]), "hour": np.array([r[3] for r in rows])}
+
+
 def walk_forward(X, y, hour):
     idx, pm, pg, ph, yt = [], [], [], [], []
     n = len(y)
@@ -78,12 +111,13 @@ def walk_forward(X, y, hour):
     return np.array(idx), np.array(pm), np.array(pg), np.array(ph), np.array(yt)
 
 
-def evaluate(X, y, hour, label):
+def evaluate(X, y, hour, label, persist_col=None):
     """Also scores a persistence baseline (logistic on the single feature rt_vs_da_now: 'the last RT price
     vs this hour's DA price'). Added after a first run showed AUC ~0.9: that signal is trivially known to any
     real-time dispatcher, so beating flat/hour-of-day baselines alone proves nothing."""
     idx, pm, pg, ph, yt = walk_forward(X, y, hour)
-    _, pp, _, _, _ = walk_forward(X[:, [NAMES.index("rt_vs_da_now")]], y, hour)
+    pcol = NAMES.index("rt_vs_da_now") if persist_col is None else persist_col
+    _, pp, _, _, _ = walk_forward(X[:, [pcol]], y, hour)
     bp = (pp - yt) ** 2
     bm, bg, bh = (pm - yt) ** 2, (pg - yt) ** 2, (ph - yt) ** 2
     block = 24
@@ -108,6 +142,10 @@ def main(data_dir="data/caiso", node="TH_NP15_GEN-APND"):
     print("real skill = gain vs PERSISTENCE with a CI excluding 0 (the other baselines are too easy)\n")
     for tgt in ("y_basis", "y_spike"):
         evaluate(ds["X"], ds[tgt], ds["hour"], tgt[2:])
+    print("\n--- decision made at the day-ahead cutoff (13:00 local the day before): causal features only ---")
+    da_ds = build_dataset_da(_load(f"{data_dir}/{node}_RTM.csv"), _load(f"{data_dir}/{node}_DAM.csv"))
+    print(f"{len(da_ds['t'])} usable hours; baseline = last-7-days same-hour basis")
+    evaluate(da_ds["X"], da_ds["y_basis"], da_ds["hour"], "basis", persist_col=NAMES_DA.index("basis_hour7"))
 
 
 if __name__ == "__main__":
