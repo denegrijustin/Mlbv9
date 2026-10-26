@@ -1,13 +1,17 @@
 # Shadow-only forward test runner. No orders, no keys. See desk/SHADOW_PROTOCOL.md.
-# Records delayed public quote snapshots for LIT/ALB/SQM every 5 minutes (the poller skips anything that is not
+# Started every 5 minutes by a Cloudflare cron trigger. Records delayed public quote snapshots for LIT/ALB/SQM (the poller skips anything that is not
 # 'Open'), and rebuilds the simulated daily reports after each close. Data lives on the shadow-data branch.
 # To stop: Actions tab -> "shadow" -> "..." menu -> Disable workflow.
 name: shadow
 on:
-  schedule:
-    - cron: "*/5 13-21 * * 1-5"     # UTC; covers the US session in both daylight and standard time
-    - cron: "40 21 * * 1-5"         # after the close in both: rebuild reports
-  workflow_dispatch: {}
+  # No schedule here: the clock is a Cloudflare cron trigger (src/worker.js), because GitHub's own cron is best-effort.
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to run"
+        type: choice
+        options: [both, record, report]
+        default: both
 permissions:
   contents: write
 concurrency:
@@ -17,6 +21,8 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      TASK: ${{ github.event.inputs.task || 'both' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,10 +35,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Record quotes
-        if: github.event.schedule != '40 21 * * 1-5'
+        if: env.TASK == 'record' || env.TASK == 'both'
         run: cd code && python -m desk.shadow record LIT:etf ALB SQM --dir ../shadow
       - name: Rebuild reports
-        if: github.event.schedule == '40 21 * * 1-5' || github.event_name == 'workflow_dispatch'
+        if: env.TASK == 'report' || env.TASK == 'both'
         run: cd code && python -m desk.shadow report LIT ALB SQM --dir ../shadow
       - name: Commit data
         run: |

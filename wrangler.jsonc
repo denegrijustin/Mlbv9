@@ -1,9 +1,12 @@
 {
-  // Static dashboard served by a Cloudflare Worker (assets only, no script).
+  // Dashboard (static assets) plus a cron-trigger script that starts the GitHub recorder workflow.
   // The Worker name must match the Worker created in the Cloudflare dashboard ("dollar").
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dollar",
+  "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./dashboard" },
-  "routes": [{ "pattern": "dollar.elskatemm.com", "custom_domain": true }]
+  "assets": { "directory": "./dashboard", "binding": "ASSETS" },
+  "routes": [{ "pattern": "dollar.elskatemm.com", "custom_domain": true }],
+  // UTC. First: poll every 5 minutes through the US session (the recorder skips anything not 'Open'). Second: rebuild reports.
+  "triggers": { "crons": ["*/5 13-21 * * 1-5", "40 21 * * 1-5"] }
 }

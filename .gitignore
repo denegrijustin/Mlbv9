@@ -6,3 +6,5 @@ live_*.csv
 data/
 reports/
 shadow/
+.wrangler/
+node_modules/
