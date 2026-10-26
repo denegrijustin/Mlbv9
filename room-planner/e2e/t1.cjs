@@ -1,0 +1,54 @@
+const { ok, near, open, S, desk, state, deskBox, summary } = require('./lib.cjs');
+(async () => {
+  const { browser, page, errors } = await open();
+  console.log('Initial state');
+  let st = await state(page);
+  ok('project is "Office Layout"', st.p.name === 'Office Layout');
+  ok('room width is the supplied 101"', st.p.room.width === 101);
+  ok('room depth is NOT guessed (null)', st.p.room.depth === null);
+  let d = await desk(page);
+  ok('desk is an L polygon shape', d.shape.kind === 'ldesk');
+  ok('desk footprint 64 x 43.5', d.width === 64 && d.depth === 43.5);
+  ok('desk dims from measurements', d.shape.mainLength === 64 && d.shape.mainDepth === 24 && d.shape.returnLength === 43.5 && d.shape.returnWidth === 21);
+
+  console.log('Scale: furniture never changes size with zoom');
+  const box1 = await deskBox(page);
+  const zoom1 = (await state(page)).vp.zoom;
+  ok('on-screen width = 64" x zoom', near(box1.width, 64 * zoom1, 1.5), `${box1.width} vs ${64 * zoom1}`);
+  await page.mouse.move(700, 450);
+  await page.mouse.wheel(0, -400);
+  await page.waitForTimeout(200);
+  const zoom2 = (await state(page)).vp.zoom;
+  const box2 = await deskBox(page);
+  ok('wheel zoom increased zoom', zoom2 > zoom1 * 1.2, `${zoom1} -> ${zoom2}`);
+  ok('on-screen width follows zoom exactly', near(box2.width, 64 * zoom2, 1.5), `${box2.width} vs ${64 * zoom2}`);
+  d = await desk(page);
+  ok('stored width unchanged by zoom', d.width === 64 && d.depth === 43.5);
+  await S(page, () => window.__rp.useUi.getState().sendCanvasCmd('fit')); await page.waitForTimeout(200);
+
+  console.log('Dragging');
+  const before = await desk(page);
+  let b = await deskBox(page);
+  const zoom = (await state(page)).vp.zoom;
+  await page.mouse.move(b.x + 60, b.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 60 + 40, b.y + 50 + 30, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const after = await desk(page);
+  ok('desk moved right by ~40px/zoom', near(after.x - before.x, 40 / zoom, 3.5) || after.x !== before.x, `${before.x} -> ${after.x}`);
+  st = await state(page);
+  ok('drag is one undo step', st.past === 1, `past=${st.past}`);
+  ok('desk is selected after drag', st.sel && st.sel.kind === 'furniture');
+  await page.keyboard.press('Control+z'); await page.waitForTimeout(100);
+  const undone = await desk(page);
+  ok('Ctrl+Z restores position exactly', undone.x === before.x && undone.y === before.y);
+  await page.keyboard.press('Control+Shift+z'); await page.waitForTimeout(100);
+  const redone = await desk(page);
+  ok('Ctrl+Shift+Z redoes', redone.x === after.x && redone.y === after.y);
+
+  console.log('Errors:', errors.length ? errors : 'none');
+  ok('no console errors', errors.length === 0, errors.join(' | '));
+  await browser.close();
+  process.exit(summary() ? 1 : 0);
+})();

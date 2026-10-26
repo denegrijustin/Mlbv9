@@ -1,0 +1,80 @@
+const { ok, near, open, S, desk, state, summary } = require('./lib.cjs');
+(async () => {
+  const { browser, ctx, page, errors } = await open({ viewport: { width: 390, height: 844 }, touch: true });
+  const cdp = await ctx.newCDPSession(page);
+  const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p, i) => ({ x: p.x, y: p.y, id: i + 1, radiusX: 4, radiusY: 4, force: 1 })) });
+  await S(page, () => { window.__rp.useProject.getState().updateRoom({ depth: 120 }); window.__rp.useUi.getState().sendCanvasCmd('fit'); });
+  await page.waitForTimeout(400);
+
+  console.log('Phone layout');
+  const sidebars = await page.$$('aside');
+  ok('side panels are hidden on a phone (canvas gets the screen)', sidebars.length === 0);
+  const canvas = await page.$eval('[data-testid="plan-canvas"]', e => { const r = e.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+  ok('canvas fills the width and most of the height', canvas.w >= 390 && canvas.h > 640, JSON.stringify(canvas));
+  const st0 = await state(page);
+  const dbox = await (await page.$('g[data-hit="furniture"]')).boundingBox();
+  ok('whole room width visible after fit (desk inside viewport)', dbox.x >= 0 && dbox.x + dbox.width <= 390, JSON.stringify(dbox));
+  const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+  ok('no horizontal page scroll', scrollW <= 390, `${scrollW}`);
+
+  console.log('Bottom sheets');
+  await page.click('nav >> text=Furniture'); await page.waitForTimeout(300);
+  const sheetVisible = await page.$eval('[aria-label="Furniture"][role="dialog"]', e => e.getBoundingClientRect().top < window.innerHeight - 100);
+  ok('Furniture sheet slides up', sheetVisible);
+  await page.click('[data-testid="tpl-tpl-chair"]'); await page.waitForTimeout(400);
+  let st = await state(page);
+  ok('tapping a library item adds it', st.p.layouts[0].furniture.length === 2);
+  const propsOpen = await page.$eval('[aria-label="Properties"][role="dialog"]', e => e.getBoundingClientRect().top < window.innerHeight - 100);
+  ok('Properties sheet opens for the new item', propsOpen);
+  const fields = await page.$$('[data-testid="f-width"]');
+  ok('inspector fields are usable in the sheet', fields.length === 1);
+  await page.click('[role="dialog"][aria-label="Properties"] button[aria-label="Close"]'); await page.waitForTimeout(300);
+  ok('closing the sheet deselects', (await state(page)).sel === null);
+
+  console.log('One-finger drag moves furniture');
+  const before = await desk(page);
+  const b = await (await page.$('g[data-hit="furniture"]')).boundingBox();
+  const start = { x: b.x + 30, y: b.y + 25 };
+  await touch('touchStart', [start]); 
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [{ x: start.x + i * 6, y: start.y + i * 5 }]);
+  await touch('touchEnd', []);
+  await page.waitForTimeout(250);
+  const after = await desk(page);
+  ok('finger drag moved the desk', after.x !== before.x || after.y !== before.y, `${before.x},${before.y} -> ${after.x},${after.y}`);
+
+  console.log('Two-finger pinch zooms; furniture dimensions stay exact');
+  await page.click('[role="dialog"][aria-label="Properties"] button[aria-label="Close"]').catch(() => {});
+  await S(page, () => window.__rp.useUi.getState().select(null));
+  const z0 = (await state(page)).vp.zoom;
+  const c = { x: 195, y: 300 };
+  await touch('touchStart', [{ x: c.x - 40, y: c.y }, { x: c.x + 40, y: c.y }]);
+  for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: c.x - 40 - i * 8, y: c.y }, { x: c.x + 40 + i * 8, y: c.y }]);
+  await touch('touchEnd', []);
+  await page.waitForTimeout(250);
+  const z1 = (await state(page)).vp.zoom;
+  ok('pinch out zooms in (~3x)', z1 > z0 * 2, `${z0} -> ${z1}`);
+  ok('desk dimensions are still exactly 64 x 43.5', (await desk(page)).width === 64 && (await desk(page)).depth === 43.5);
+  const dbox2 = await (await page.$('g[data-hit="furniture"]')).boundingBox();
+  ok('on-screen desk width tracks the zoom (64" x zoom)', near(dbox2.width, 64 * z1, 3), `${dbox2.width} vs ${64 * z1}`);
+  const lastDesk = await desk(page);
+  await touch('touchStart', [{ x: c.x - 120, y: c.y }, { x: c.x + 120, y: c.y }]);
+  for (let i = 1; i <= 10; i++) await touch('touchMove', [{ x: c.x - 120 + i * 10, y: c.y }, { x: c.x + 120 - i * 10, y: c.y }]);
+  await touch('touchEnd', []);
+  await page.waitForTimeout(250);
+  const z2 = (await state(page)).vp.zoom;
+  ok('pinch in zooms out', z2 < z1 * 0.7, `${z1} -> ${z2}`);
+  const finalDesk = await desk(page);
+  ok('a pinch never moves or resizes furniture', finalDesk.x === lastDesk.x && finalDesk.y === lastDesk.y && finalDesk.width === 64);
+
+  console.log('Two-finger pan');
+  const vp0 = (await state(page)).vp;
+  await touch('touchStart', [{ x: 150, y: 400 }, { x: 250, y: 400 }]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [{ x: 150 + i * 5, y: 400 + i * 5 }, { x: 250 + i * 5, y: 400 + i * 5 }]);
+  await touch('touchEnd', []);
+  const vp1 = (await state(page)).vp;
+  ok('two fingers moving together pans the view', vp1.panX > vp0.panX + 20 && vp1.panY > vp0.panY + 20 && near(vp1.zoom, vp0.zoom, 0.02), `${vp0.panX},${vp0.panY} -> ${vp1.panX},${vp1.panY}`);
+
+    ok('no console errors', errors.length === 0, errors.join(' | '));
+  await browser.close();
+  process.exit(summary() ? 1 : 0);
+})();

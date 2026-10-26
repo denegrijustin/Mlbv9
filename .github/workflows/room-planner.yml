@@ -1,0 +1,27 @@
+# Checks for the room-planner app: types, unit tests and a production build. Runs only when it changes.
+name: room-planner
+on:
+  push:
+    branches: [main]
+    paths: ['room-planner/**', '.github/workflows/room-planner.yml']
+  pull_request:
+    paths: ['room-planner/**', '.github/workflows/room-planner.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: room-planner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: room-planner/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
