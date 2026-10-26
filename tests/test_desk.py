@@ -114,3 +114,48 @@ class ReplayTests(unittest.TestCase):
         from desk.logs import Log
         self.assertEqual(run_gambler(iter([]), log=Log(os.path.join(tempfile.mkdtemp(), "x"))), 0.0)
         self.assertEqual(run_house(iter([]))[0], 0.0)
+
+
+class OhlcvTests(unittest.TestCase):
+    def _bars(self, rows):
+        import os, tempfile
+        p = os.path.join(tempfile.mkdtemp(), "bars.csv")
+        with open(p, "w") as f:
+            f.write("Date,Open,High,Low,Close,Volume\n" + "\n".join(rows) + "\n")
+        return p
+
+    def test_clv_split_and_skips_bad_rows(self):
+        from desk.ohlcv import bars_to_ticks
+        p = self._bars(["2026-01-01,10,12,8,11,1000", "2026-01-02,,,,,", "2026-01-03,10,10,10,10,0"])
+        t = list(bars_to_ticks(p, spread_bps=10))
+        self.assertEqual(len(t), 2)
+        mid, spread, bid, ask = t[0]
+        self.assertEqual((mid, round(bid), round(ask)), (11, 750, 250))
+        self.assertAlmostEqual(spread, 0.011)
+        self.assertEqual(t[1][2], t[1][3])  # flat bar splits evenly
+
+    def test_missing_columns_raises(self):
+        from desk.ohlcv import bars_to_ticks
+        import os, tempfile
+        p = os.path.join(tempfile.mkdtemp(), "nocols.csv")
+        open(p, "w").write("Date,Price\n2026-01-01,10\n")
+        with self.assertRaises(ValueError):
+            list(bars_to_ticks(p))
+
+    def test_short_row_skipped(self):
+        from desk.ohlcv import bars_to_ticks
+        self.assertEqual(len(list(bars_to_ticks(self._bars(["1,2,3", "2,10,12,8,11,100"])))), 1)
+
+    def test_end_to_end_through_replay(self):
+        import os, random, tempfile
+        from desk.ohlcv import bars_to_ticks
+        from desk.run import run_gambler
+        from desk.logs import Log
+        rng, px, rows = random.Random(1), 50.0, []
+        for i in range(300):
+            o = px; px *= 1 + rng.gauss(0.0003, 0.015); h, l = max(o, px) * 1.005, min(o, px) * 0.995
+            rows.append(f"{i},{o},{h},{l},{px},{rng.randint(1000, 5000)}")
+        d = tempfile.mkdtemp()
+        pnl = run_gambler(bars_to_ticks(self._bars(rows)), "shadow", log=Log(os.path.join(d, "l.jsonl")))
+        self.assertEqual(pnl, 0.0)
+        self.assertTrue(os.path.getsize(os.path.join(d, "l.jsonl")) > 0)
