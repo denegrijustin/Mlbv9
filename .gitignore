@@ -5,3 +5,4 @@ live_*.csv
 *.gaps.log
 data/
 reports/
+shadow/

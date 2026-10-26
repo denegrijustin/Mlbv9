@@ -685,3 +685,71 @@ class DailyLossResetTests(unittest.TestCase):
         halts_days = {e["ts"][:10] for e in ev if e["event"] == "veto" and e.get("reason") == "daily_loss_halt"}
         buy_days = {e["ts"][:10] for e in ev if e["event"] == "fill" and e["side"] == "buy"}
         self.assertTrue(max(buy_days) > min(halts_days) if halts_days else True)
+
+
+class ShadowTests(unittest.TestCase):
+    def _payload(self, status="Open", last="$60.50", bid="60.49", ask="60.51", bs="300", as_="500", vol="1,000"):
+        return {"data": {"marketStatus": status, "primaryData": {"lastSalePrice": last, "bidPrice": bid, "askPrice": ask,
+                "bidSize": bs, "askSize": as_, "volume": vol, "lastTradeTimestamp": "Oct 27, 2026", "isRealTime": True}}}
+
+    def test_parse_open_closed_and_bad(self):
+        from desk.shadow import parse_quote
+        q, why = parse_quote(self._payload())
+        self.assertEqual((q["last"], q["bid"], q["bid_size"], q["volume"], why), (60.5, 60.49, 300.0, 1000.0, None))
+        self.assertEqual(parse_quote(self._payload(status="Closed"))[1], "not_open:Closed")
+        self.assertTrue(parse_quote(self._payload(status="Pre-Market"))[1].startswith("not_open"))
+        self.assertEqual(parse_quote(self._payload(last="N/A"))[1], "no_last")
+        self.assertEqual(parse_quote({})[1], "no_last")
+        q, _ = parse_quote(self._payload(bid="N/A", ask="N/A", bs="N/A", as_="N/A"))
+        self.assertIsNone(q["bid"])
+
+    def test_record_writes_rows_logs_gaps_and_guards_duplicates(self):
+        import os, tempfile
+        from desk.shadow import record_once
+        d = tempfile.mkdtemp()
+        clock = {"t": 1_800_000_000.0}
+        fetch = lambda s, ac: self._payload() if s == "LIT" else self._payload(status="Closed")
+        r = record_once(["LIT:etf", "ALB"], d, fetch, now=lambda: clock["t"])
+        self.assertEqual(r, {"LIT": "ok", "ALB": "not_open:Closed"})
+        self.assertEqual(record_once(["LIT:etf"], d, fetch, now=lambda: clock["t"] + 10), {"LIT": "dup_within_60s"})
+        clock["t"] += 300
+        self.assertEqual(record_once(["LIT:etf"], d, fetch, now=lambda: clock["t"]), {"LIT": "ok"})
+        self.assertEqual(len(open(os.path.join(d, "LIT_quotes.csv")).read().splitlines()), 3)   # header + 2
+        self.assertIn("ALB not_open:Closed", open(os.path.join(d, "gaps.log")).read())
+        def boom(s, ac): raise OSError("net down")
+        self.assertEqual(record_once(["LIT:etf"], d, boom, now=lambda: clock["t"] + 900), {"LIT": "error:OSError"})
+
+    def test_ticks_label_book_vs_proxy(self):
+        import os, tempfile
+        from desk.shadow import record_once, ticks_from_quotes
+        d = tempfile.mkdtemp(); t = [1_800_000_000.0]
+        seq = iter([self._payload(), self._payload(bid="N/A", ask="N/A", bs="N/A", as_="N/A", last="$60.60", vol="1,400"),
+                    self._payload(bid="N/A", ask="N/A", bs="N/A", as_="N/A", last="$60.40", vol="1,900")])
+        for _ in range(3):
+            record_once(["LIT:etf"], d, lambda s, ac: next(seq), now=lambda: t[0]); t[0] += 300
+        ticks, nb, npx = ticks_from_quotes(os.path.join(d, "LIT_quotes.csv"))
+        self.assertEqual((nb, npx, len(ticks)), (1, 2, 3))
+        self.assertGreater(ticks[1][2], ticks[1][3])      # uptick on 400 shares: buy side heavier
+        self.assertGreater(ticks[2][3], ticks[2][2])      # downtick: sell side heavier
+
+    def test_report_is_idempotent_and_labels_simulation(self):
+        import os, random, tempfile
+        from datetime import datetime, timedelta, timezone
+        from desk.shadow import build_report
+        d = tempfile.mkdtemp(); rng = random.Random(3); px = 60.0
+        with open(os.path.join(d, "LIT_quotes.csv"), "w") as f:
+            f.write("fetch_ts,last,volume,bid,ask,bid_size,ask_size,trade_ts,real_time\n")
+            t0 = datetime(2026, 11, 2, 14, 30, tzinfo=timezone.utc)
+            for day in range(4):
+                for k in range(78):
+                    px *= 1 + rng.gauss(0, 0.001)
+                    ts = (t0 + timedelta(days=day, minutes=5 * k)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    f.write(f"{ts},{px:.2f},{1000 + k * 50},{px - .01:.2f},{px + .01:.2f},{rng.randint(100, 900)},{rng.randint(100, 900)},x,True\n")
+        a = build_report("LIT", d)
+        first = open(os.path.join(d, "logs", "LIT.jsonl")).read()
+        b = build_report("LIT", d)
+        self.assertEqual(first, open(os.path.join(d, "logs", "LIT.jsonl")).read())    # rebuild is deterministic
+        md = open(os.path.join(d, "reports", "LIT", "daily_report.md")).read()
+        self.assertIn("Simulated, no orders sent", md)
+        self.assertIn("4 days", a)
+        self.assertIn("312 book ticks, 0 proxy", md)

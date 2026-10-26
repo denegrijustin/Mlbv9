@@ -1,0 +1,26 @@
+# TEMPLATE, NOT ACTIVE. To enable: copy to .github/workflows/shadow.yml on the default branch.
+# Free-tier caveats (verify against current GitHub docs): scheduled runs can be delayed or skipped, minutes are
+# metered on private repos (a 5-minute cron over market hours is roughly 1,600-2,000 runs/month, close to a 2,000-minute
+# free allowance), scheduled workflows on public repos are disabled after a long inactivity, and runs are not continuous.
+# It also polls an unofficial Nasdaq endpoint every 5 minutes on your behalf: decide that deliberately.
+name: shadow-record
+on:
+  schedule:
+    - cron: "*/5 13-20 * * 1-5"      # UTC; the poller itself skips anything that is not 'Open'
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: shadow-data }    # data lives on its own branch so main stays clean
+      - uses: actions/checkout@v4
+        with: { ref: main, path: code }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: cd code && python -m desk.shadow record LIT:etf ALB SQM --dir ../shadow
+      - run: |
+          git config user.name "shadow-bot" && git config user.email "shadow-bot@users.noreply.github.com"
+          git add shadow && (git diff --cached --quiet || git commit -m "quotes $(date -u +%FT%TZ)") && git push
