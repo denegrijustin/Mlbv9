@@ -10,7 +10,35 @@ import { exportProject, importProject, type ImportResult } from '../model/serial
 import type { Project } from '../model/types'
 import { lengthFormatter } from './format'
 
-export function download(filename: string, blob: Blob) {
+declare global {
+  interface Window {
+    claude?: { use: (name: string) => Promise<unknown> }
+  }
+}
+interface DownloadsApi {
+  save: (r: { filename: string; data: Blob | string }) => Promise<{ status: string }>
+}
+
+/**
+ * Save a file. Inside a Claude artifact the viewer blocks script-started downloads, so the `downloads` capability
+ * (viewer confirms the name) is used when it exists; in a normal browser an ordinary download is started.
+ * Resolves false only when the viewer declined.
+ */
+export async function download(filename: string, blob: Blob): Promise<boolean> {
+  try {
+    const dl = (await window.claude?.use('downloads')) as DownloadsApi | null | undefined
+    if (dl) {
+      try {
+        await dl.save({ filename, data: blob })
+        return true
+      } catch (e) {
+        if ((e as { code?: string } | null)?.code === 'declined') return false
+        // any other refusal: fall through to a plain download
+      }
+    }
+  } catch {
+    /* no capability host */
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -19,12 +47,13 @@ export function download(filename: string, blob: Blob) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
+  return true
 }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'room'
 
-export function exportJson(project: Project) {
-  download(`${slug(project.name)}.roomplan.json`, new Blob([exportProject(project)], { type: 'application/json' }))
+export function exportJson(project: Project): Promise<boolean> {
+  return download(`${slug(project.name)}.roomplan.json`, new Blob([exportProject(project)], { type: 'application/json' }))
 }
 
 export async function importJsonFile(file: File): Promise<ImportResult> {
@@ -83,7 +112,7 @@ export function planSvgMarkup(project: Project, width = 1600): { svg: string; wi
   return { svg, width: size.w, height: size.h }
 }
 
-export async function exportPng(project: Project, scale = 2) {
+export async function exportPng(project: Project, scale = 2): Promise<boolean> {
   const { svg, width, height } = planSvgMarkup(project)
   const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }))
   try {
@@ -102,13 +131,13 @@ export async function exportPng(project: Project, scale = 2) {
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
     if (!blob) throw new Error('Could not create the PNG')
     const layout = project.layouts.find((l) => l.id === project.activeLayoutId) ?? project.layouts[0]
-    download(`${slug(project.name)}-${slug(layout.name)}.png`, blob)
+    return await download(`${slug(project.name)}-${slug(layout.name)}.png`, blob)
   } finally {
     URL.revokeObjectURL(url)
   }
 }
 
-export function exportSvg(project: Project) {
+export function exportSvg(project: Project): Promise<boolean> {
   const { svg } = planSvgMarkup(project)
-  download(`${slug(project.name)}.svg`, new Blob([svg], { type: 'image/svg+xml' }))
+  return download(`${slug(project.name)}.svg`, new Blob([svg], { type: 'image/svg+xml' }))
 }

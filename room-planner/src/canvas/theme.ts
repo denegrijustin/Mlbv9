@@ -80,15 +80,29 @@ export const DARK: Theme = {
   unmeasured: '#ffb340',
 }
 
+function prefersDark(): boolean {
+  if (typeof document === 'undefined') return false
+  const forced = document.documentElement.dataset.theme
+  if (forced === 'dark') return true
+  if (forced === 'light') return false
+  return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+/** Follows an explicit data-theme choice on the root element, otherwise the system setting. */
 export function useTheme(): Theme {
-  const q = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
-  const [dark, setDark] = useState(q?.matches ?? false)
+  const [dark, setDark] = useState(prefersDark)
   useEffect(() => {
-    if (!q) return
-    const on = () => setDark(q.matches)
-    q.addEventListener('change', on)
-    return () => q.removeEventListener('change', on)
-  }, [q])
+    const update = () => setDark(prefersDark())
+    const q = window.matchMedia?.('(prefers-color-scheme: dark)')
+    q?.addEventListener('change', update)
+    const mo = new MutationObserver(update)
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    update()
+    return () => {
+      q?.removeEventListener('change', update)
+      mo.disconnect()
+    }
+  }, [])
   return dark ? DARK : LIGHT
 }
 

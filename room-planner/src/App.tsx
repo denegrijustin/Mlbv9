@@ -32,7 +32,7 @@ export default function App() {
 
   const hudVisible = !presentation
   return (
-    <div className="fixed inset-0 flex flex-col bg-bg text-ink" data-testid="app">
+    <div className="fixed inset-0 flex flex-col bg-bg text-ink" data-testid="app" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
       <Toolbar compact={mobile} />
       <div className="relative flex min-h-0 flex-1 gap-2.5 p-2.5 pt-2" style={mobile || presentation ? { padding: 0 } : undefined}>
         {!mobile && hudVisible && (
