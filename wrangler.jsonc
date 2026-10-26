@@ -1,0 +1,9 @@
+{
+  // Static dashboard served by a Cloudflare Worker (assets only, no script).
+  // The Worker name must match the Worker created in the Cloudflare dashboard ("dollar").
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dollar",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dashboard" },
+  "routes": [{ "pattern": "dollar.elskatemm.com", "custom_domain": true }]
+}
