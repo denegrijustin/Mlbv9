@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shadow Test Dashboard</title>
+<meta name="description" content="Simulated forward test of the trading desk. No orders are sent.">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #14181f; --muted: #5b6574; --line: #e2e6ec;
+    --good: #12805c; --bad: #b4332a; --warn: #9a6200; --accent: #2457d6; --bench: #8a94a6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116; --card: #161b22; --ink: #e8ecf2; --muted: #9aa5b5; --line: #262d38;
+      --good: #3ccf91; --bad: #ff7b72; --warn: #e3b341; --accent: #6e9bff; --bench: #7b8596;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --card: #161b22; --ink: #e8ecf2; --muted: #9aa5b5; --line: #262d38;
+    --good: #3ccf91; --bad: #ff7b72; --warn: #e3b341; --accent: #6e9bff; --bench: #7b8596;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 56px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 28px 0 10px; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+  .sub { color: var(--muted); margin: 0; }
+  .banner { margin-top: 14px; padding: 10px 14px; border: 1px solid var(--line); border-left: 4px solid var(--warn); background: var(--card); border-radius: 8px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .pill { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 13px; }
+  .pill.good { color: var(--good); } .pill.bad { color: var(--bad); } .pill.warn { color: var(--warn); }
+  .bar { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 8px 0 4px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h3 { margin: 0 0 8px; font-size: 17px; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 14px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; text-align: right; }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .verdict { margin-top: 10px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tabs button { font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  .tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  svg { width: 100%; max-width: 640px; height: auto; display: block; margin: 0 auto; }
+  .legend { display: flex; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  @media (max-width: 520px) { th, td { padding: 6px 5px; font-size: 13px; } }
+  .scroll { overflow-x: auto; }
+  .muted { color: var(--muted); }
+  .empty { padding: 18px; text-align: center; color: var(--muted); }
+  footer { margin-top: 36px; font-size: 13px; color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Shadow test</h1>
+  <p class="sub">Forward test of the trading desk on live quotes for LIT, ALB and SQM.</p>
+  <div class="banner"><strong>Simulated. No orders are sent</strong> and no broker or keys are involved. Dollar figures are what a paper account inside the program would have done.</div>
+  <div class="row" id="status"></div>
+
+  <h2>Test progress</h2>
+  <div class="card" id="progress"><div class="empty">Loading…</div></div>
+
+  <h2>Results by symbol</h2>
+  <div class="grid" id="cards"><div class="empty">Loading…</div></div>
+
+  <h2>Equity vs buy-and-hold</h2>
+  <div class="card">
+    <div class="tabs" id="tabs" role="group" aria-label="Symbol"></div>
+    <div id="chart"><div class="empty">Loading…</div></div>
+    <div class="legend"><span><i style="background:var(--accent)"></i>Desk (simulated), cumulative return</span><span><i style="background:var(--bench)"></i>Buy-and-hold, same instrument</span></div>
+  </div>
+
+  <h2>Data health</h2>
+  <div class="card scroll" id="health"><div class="empty">Loading…</div></div>
+
+  <h2>Recent errors</h2>
+  <div class="card" id="errors"><div class="empty">Loading…</div></div>
+
+  <footer>
+    Data: <a id="datalink" href="https://github.com/denegrijustin/Mlbv9/tree/shadow-data/shadow">shadow-data branch</a> ·
+    <a href="https://github.com/denegrijustin/Mlbv9/actions/workflows/shadow.yml">Workflow runs</a> ·
+    <a href="https://github.com/denegrijustin/Mlbv9/blob/main/desk/SHADOW_PROTOCOL.md">Protocol</a>.
+    A few weeks of results cannot separate skill from luck; the verdict lines say so.
+  </footer>
+</main>
+<script>
+"use strict";
+const params = new URLSearchParams(location.search);
+const BASE = params.get("base") || "https://raw.githubusercontent.com/denegrijustin/Mlbv9/shadow-data/shadow/";
+const SYMBOLS = ["LIT", "ALB", "SQM"];
+const PROTOCOL_START = "2026-11-02";   // counted test begins; earlier days are rehearsal
+const MIN_DAYS = 15;                   // protocol minimum for the pass/fail hypothesis
+const EXPECTED_POLLS = 78;             // 5-minute polls in a 6.5-hour session
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const r2 = v => Math.round(Number(v) * 100) / 100 || 0;      // -0.004 -> 0, never "-0.00"
+const pct = (v, d = 2) => { const x = r2(v); return (x > 0 ? "+" : "") + x.toFixed(d) + "%"; };
+const cls = v => (r2(v) > 0 ? "pos" : r2(v) < 0 ? "neg" : "");
+
+async function get(path, kind) {
+  try {
+    const r = await fetch(BASE + path, { cache: "no-store" });
+    if (!r.ok) return null;
+    return kind === "json" ? await r.json() : await r.text();
+  } catch (e) { return null; }
+}
+
+function parseCSV(text) {
+  if (!text) return [];
+  const lines = text.trim().split(/\r?\n/);
+  const head = lines[0].split(",");
+  return lines.slice(1).filter(Boolean).map(l => {
+    const c = l.split(","), o = {};
+    head.forEach((h, i) => { o[h] = c[i] === undefined ? "" : c[i]; });
+    return o;
+  });
+}
+
+function dayStats(quotes) {
+  const by = {};
+  for (const q of quotes) {
+    const d = (q.fetch_ts || "").slice(0, 10);
+    if (!d) continue;
+    const e = by[d] || (by[d] = { date: d, polls: 0, book: 0 });
+    e.polls++;
+    if (q.bid && q.ask && q.bid_size && q.ask_size) e.book++;
+  }
+  return Object.values(by).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function ago(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now";
+  if (m < 90) return m + " min ago";
+  const h = m / 60;
+  return h < 48 ? h.toFixed(1) + " h ago" : Math.round(h / 24) + " days ago";
+}
+
+function renderChart(sym, daily) {
+  const el = $("chart");
+  if (!daily.length) { el.innerHTML = '<div class="empty">No daily results for ' + esc(sym) + " yet. They appear after the first full trading day.</div>"; return; }
+  const W = 460, H = 250, L = 52, R = 12, T = 12, B = 30;
+  const a = daily.map(d => Number(d.cum_return_pct)), b = daily.map(d => Number(d.benchmark_pct));
+  const all = a.concat(b, [0]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 0.2) { hi += 0.1; lo -= 0.1; }
+  const x = i => L + (daily.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (daily.length - 1));
+  const y = v => T + (hi - v) * (H - T - B) / (hi - lo);
+  const path = arr => arr.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+  const dot = (arr, color) => daily.length === 1 ? `<circle cx="${x(0)}" cy="${y(arr[0])}" r="4" fill="${color}"/>` : "";
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative return for ${esc(sym)} versus buy-and-hold">
+    <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)" stroke-dasharray="4 4"/>
+    <text x="${L - 6}" y="${y(hi) + 4}" text-anchor="end" font-size="14" fill="var(--muted)">${hi.toFixed(1)}%</text>
+    <text x="${L - 6}" y="${y(lo) + 4}" text-anchor="end" font-size="14" fill="var(--muted)">${lo.toFixed(1)}%</text>
+    <text x="${L - 6}" y="${y(0) + 4}" text-anchor="end" font-size="14" fill="var(--muted)">0%</text>
+    <path d="${path(b)}" fill="none" stroke="var(--bench)" stroke-width="2"/>
+    <path d="${path(a)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${dot(b, "var(--bench)")}${dot(a, "var(--accent)")}
+    <text x="${L}" y="${H - 8}" font-size="14" fill="var(--muted)">${esc(daily[0].date)}</text>
+    <text x="${W - R}" y="${H - 8}" text-anchor="end" font-size="14" fill="var(--muted)">${esc(daily[daily.length - 1].date)}</text>
+  </svg>`;
+}
+
+async function main() {
+  $("datalink").href = "https://github.com/denegrijustin/Mlbv9/tree/shadow-data/shadow";
+  const data = {};
+  await Promise.all(SYMBOLS.map(async s => {
+    const [quotes, summary, daily] = await Promise.all([
+      get(s + "_quotes.csv"), get("reports/" + s + "/summary.json", "json"), get("reports/" + s + "/daily.csv")]);
+    data[s] = { quotes: parseCSV(quotes), summary, daily: parseCSV(daily) };
+    data[s].days = dayStats(data[s].quotes);
+  }));
+  const gapsText = await get("gaps.log");
+
+  // status pills
+  const lastTs = SYMBOLS.map(s => data[s].quotes.length ? data[s].quotes[data[s].quotes.length - 1].fetch_ts : "").filter(Boolean).sort().pop();
+  const st = $("status");
+  if (!lastTs) {
+    st.innerHTML = '<span class="pill warn">No quotes recorded yet</span><span class="pill">Quotes appear once the market opens (Mon-Fri, 9:30 am to 4 pm Eastern)</span>';
+  } else {
+    const age = Date.now() - Date.parse(lastTs);
+    st.innerHTML = `<span class="pill ${age < 3600e3 ? "good" : "warn"}">Last quote ${esc(ago(age))}</span><span class="pill">${esc(lastTs.replace("T", " ").replace("Z", " UTC"))}</span>`;
+  }
+
+  // progress
+  const full = d => d.polls >= EXPECTED_POLLS * 0.5;
+  const countedBy = s => data[s].days.filter(d => d.date >= PROTOCOL_START && full(d)).length;
+  const nCounted = Math.min(...SYMBOLS.map(countedBy));     // the protocol tests each symbol: the weakest one limits progress
+  const rehDays = new Set();
+  SYMBOLS.forEach(s => data[s].days.forEach(d => { if (d.date < PROTOCOL_START && full(d)) rehDays.add(d.date); }));
+  const w = Math.min(100, nCounted / MIN_DAYS * 100);
+  $("progress").innerHTML = `
+    <div><strong>${nCounted}</strong> of at least <strong>${MIN_DAYS}</strong> counted trading days
+      <span class="muted"> (counting starts ${esc(PROTOCOL_START)}; ${rehDays.size} rehearsal day${rehDays.size === 1 ? "" : "s"} so far, not counted)</span></div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${MIN_DAYS}" aria-valuenow="${nCounted}"><span style="width:${w}%"></span></div>
+    <div class="muted">A day counts for a symbol when it has at least half of the expected polls; progress is the weakest symbol. The pass/fail question is whether the judge's probabilities beat the base rate; profit and loss are shown but prove nothing at this length.</div>`;
+
+  // cards
+  $("cards").innerHTML = SYMBOLS.map(s => {
+    const sm = data[s].summary;
+    if (!sm || !sm.days) return `<div class="card"><h3>${s}</h3><div class="empty">No report yet. Reports are rebuilt after each close.</div></div>`;
+    const wr = sm.win_rate === null || sm.win_rate === undefined ? "n/a" : Math.round(sm.win_rate * 100) + "%";
+    const tot = sm.book_ticks + sm.proxy_ticks;
+    return `<div class="card"><h3>${s}</h3><div class="kv">
+      <span>Desk return (simulated)</span><span class="num ${cls(sm.total_return_pct)}">${pct(sm.total_return_pct)}</span>
+      <span>Buy-and-hold</span><span class="num ${cls(sm.benchmark_pct)}">${pct(sm.benchmark_pct)}</span>
+      <span>Max drawdown</span><span class="num">${Number(sm.max_drawdown_pct).toFixed(2)}%</span>
+      <span>Trades / win rate</span><span class="num">${sm.trades} / ${wr}</span>
+      <span>Trading days</span><span class="num">${sm.days}</span>
+      <span>Risk vetoes</span><span class="num">${sm.vetoes}</span>
+      <span>Real bid/ask ticks</span><span class="num">${tot ? Math.round(sm.book_ticks / tot * 100) : 0}%</span></div>
+      <div class="verdict">${esc(sm.verdict || "")}</div></div>`;
+  }).join("");
+
+  // chart tabs
+  let current = SYMBOLS[0];
+  const tabs = $("tabs");
+  const drawTabs = () => {
+    tabs.innerHTML = SYMBOLS.map(s => `<button type="button" aria-pressed="${s === current}" data-s="${s}">${s}</button>`).join("");
+    tabs.querySelectorAll("button").forEach(b => b.onclick = () => { current = b.dataset.s; drawTabs(); renderChart(current, data[current].daily); });
+  };
+  drawTabs(); renderChart(current, data[current].daily);
+
+  // data health: last 10 days across symbols
+  const dates = [...new Set(SYMBOLS.flatMap(s => data[s].days.map(d => d.date)))].sort().slice(-10).reverse();
+  if (!dates.length) {
+    $("health").innerHTML = '<div class="empty">No data yet.</div>';
+  } else {
+    const cell = (s, d) => {
+      const e = data[s].days.find(x => x.date === d);
+      if (!e) return '<td class="num muted">none</td>';
+      const p = Math.round(e.polls / EXPECTED_POLLS * 100), bk = e.polls ? Math.round(e.book / e.polls * 100) : 0;
+      return `<td class="num"><span class="${p < 50 ? "neg" : p < 90 ? "" : "pos"}">${e.polls} (${p}%)</span><br><span class="muted">${bk}% book</span></td>`;
+    };
+    $("health").innerHTML = `<table><thead><tr><th>Date</th>${SYMBOLS.map(s => `<th class="num">${s}</th>`).join("")}<th>Counts</th></tr></thead><tbody>` +
+      dates.map(d => `<tr><td style="white-space:nowrap">${esc(d.slice(5))}</td>${SYMBOLS.map(s => cell(s, d)).join("")}<td>${d >= PROTOCOL_START ? "yes" : '<span class="muted">no</span>'}</td></tr>`).join("") +
+      `</tbody></table><div class="muted" style="margin-top:8px">"Counts" is yes from ${PROTOCOL_START} (earlier days are rehearsal). Cells show polls recorded (share of the ~${EXPECTED_POLLS} expected per day) and the share of quotes with a real bid/ask. "Book" means the quote included a real bid, ask and sizes; the rest use a proxy built from the last price and volume.</div>`;
+  }
+
+  // errors (ignore routine "market not open" lines)
+  const errs = (gapsText || "").split(/\r?\n/).filter(l => l && !/not_open/.test(l));
+  const counts = {};
+  errs.forEach(l => { const r = l.split(" ").slice(2).join(" "); counts[r] = (counts[r] || 0) + 1; });
+  $("errors").innerHTML = errs.length
+    ? "<div>" + Object.entries(counts).map(([r, n]) => `<span class="pill warn">${esc(r)} × ${n}</span> `).join("") + `</div><pre class="muted" style="white-space:pre-wrap;margin:10px 0 0;font-size:12px">${esc(errs.slice(-8).join("\n"))}</pre>`
+    : '<div class="empty">No fetch errors logged.</div>';
+}
+main();
+</script>
+</body>
+</html>

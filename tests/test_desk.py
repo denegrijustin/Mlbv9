@@ -753,3 +753,10 @@ class ShadowTests(unittest.TestCase):
         self.assertIn("Simulated, no orders sent", md)
         self.assertIn("4 days", a)
         self.assertIn("312 book ticks, 0 proxy", md)
+        import json
+        sm = json.load(open(os.path.join(d, "reports", "LIT", "summary.json")))
+        self.assertEqual((sm["symbol"], sm["days"], sm["book_ticks"], sm["proxy_ticks"], sm["simulated"]), ("LIT", 4, 312, 0, True))
+        self.assertIn("verdict", sm)
+        daily = open(os.path.join(d, "reports", "LIT", "daily.csv")).read().splitlines()
+        self.assertEqual(len(daily), 5)                 # header + 4 days
+        self.assertIn("benchmark_pct", daily[0])

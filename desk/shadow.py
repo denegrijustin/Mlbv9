@@ -132,6 +132,12 @@ def build_report(sym, out_dir="shadow", capital=10_000.0):
     note = (f"\n> **Simulated, no orders sent.** Data mix: {nb} book ticks, {npx} proxy ticks "
             f"({npx / max(nb + npx, 1):.0%} proxy). Proxy ticks use last price and a volume tick-rule, not a real order book.\n")
     open(f"{rep}/daily_report.md", "w").write(md.replace("\n## Last", note + "\n## Last", 1))
+    # machine-readable copies for the dashboard (static page reads these)
+    if rows:
+        with open(f"{rep}/daily.csv", "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+    summary = dict(s, symbol=sym, book_ticks=nb, proxy_ticks=npx, capital=capital, simulated=True)
+    open(f"{rep}/summary.json", "w").write(json.dumps(summary, indent=1))
     return f"{sym}: {len(ticks)} ticks ({nb} book / {npx} proxy), {len(rows)} days -> {rep}/daily_report.md"
 
 
