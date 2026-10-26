@@ -8,6 +8,6 @@
   "assets": { "directory": "./dashboard", "binding": "ASSETS" },
   "observability": { "enabled": true },   // keep Worker logs so failed dispatches are visible in the dashboard
   "routes": [{ "pattern": "dollar.elskatemm.com", "custom_domain": true }],
-  // UTC. First: poll every 5 minutes through the US session (the recorder skips anything not 'Open'). Second: rebuild reports.
-  "triggers": { "crons": ["*/5 13-21 * * 1-5", "40 21 * * 1-5"] }
+  // UTC. Weekday names (not numbers) because Cloudflare's day-of-week numbering differs from Unix cron. First: poll every 5 minutes through the US session (the recorder skips anything not 'Open'). Second: rebuild reports.
+  "triggers": { "crons": ["*/5 13-21 * * MON-FRI", "40 21 * * MON-FRI"] }
 }

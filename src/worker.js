@@ -5,7 +5,7 @@
 
 const REPO = "denegrijustin/Mlbv9";
 const WORKFLOW = "shadow.yml";
-const REPORT_CRON = "40 21 * * 1-5";   // after the close in both daylight and standard time: rebuild reports
+const REPORT_CRON = "40 21 * * MON-FRI";   // after the close in both daylight and standard time: rebuild reports
 
 export async function dispatch(event, env, fetchImpl = fetch) {
   if (!env.GITHUB_TOKEN) {

@@ -12,7 +12,7 @@ const quiet = (fn) => async (...a) => { const orig = console.error; const logs =
 
 test("no token: nothing is sent, and it says why", async () => {
   const { f, calls } = mockFetch();
-  const [r, logs] = await quiet(dispatch)({ cron: "*/5 13-21 * * 1-5" }, {}, f);
+  const [r, logs] = await quiet(dispatch)({ cron: "*/5 13-21 * * MON-FRI" }, {}, f);
   assert.equal(calls.length, 0);
   assert.deepEqual(r, { ok: false, reason: "no_token" });
   assert.match(logs[0], /GITHUB_TOKEN/);
@@ -20,7 +20,7 @@ test("no token: nothing is sent, and it says why", async () => {
 
 test("5-minute cron dispatches 'record' to the right workflow, on main, with the token only in the header", async () => {
   const { f, calls } = mockFetch(204);
-  const r = await dispatch({ cron: "*/5 13-21 * * 1-5" }, { GITHUB_TOKEN: "t0k" }, f);
+  const r = await dispatch({ cron: "*/5 13-21 * * MON-FRI" }, { GITHUB_TOKEN: "t0k" }, f);
   assert.deepEqual(r, { ok: true, task: "record" });
   const c = calls[0];
   assert.equal(c.url, "https://api.github.com/repos/denegrijustin/Mlbv9/actions/workflows/shadow.yml/dispatches");
@@ -32,13 +32,13 @@ test("5-minute cron dispatches 'record' to the right workflow, on main, with the
 
 test("after-close cron dispatches 'report'", async () => {
   const { f, calls } = mockFetch(204);
-  await dispatch({ cron: "40 21 * * 1-5" }, { GITHUB_TOKEN: "x" }, f);
+  await dispatch({ cron: "40 21 * * MON-FRI" }, { GITHUB_TOKEN: "x" }, f);
   assert.equal(JSON.parse(calls[0].init.body).inputs.task, "report");
 });
 
 test("GitHub rejection is logged with status, not thrown, and never echoes the token", async () => {
   const { f } = mockFetch(401, '{"message":"Bad credentials"}');
-  const [r, logs] = await quiet(dispatch)({ cron: "*/5 13-21 * * 1-5" }, { GITHUB_TOKEN: "secret-value" }, f);
+  const [r, logs] = await quiet(dispatch)({ cron: "*/5 13-21 * * MON-FRI" }, { GITHUB_TOKEN: "secret-value" }, f);
   assert.deepEqual(r, { ok: false, reason: "http_401" });
   assert.match(logs[0], /401/);
   assert.ok(!logs[0].includes("secret-value"));
@@ -46,7 +46,7 @@ test("GitHub rejection is logged with status, not thrown, and never echoes the t
 
 test("scheduled handler defers the work with waitUntil", async () => {
   let waited = null;
-  worker.scheduled({ cron: "*/5 13-21 * * 1-5" }, {}, { waitUntil: (p) => { waited = p; } });
+  worker.scheduled({ cron: "*/5 13-21 * * MON-FRI" }, {}, { waitUntil: (p) => { waited = p; } });
   assert.ok(waited instanceof Promise);
   const orig = console.error; console.error = () => {};
   try { await waited; } finally { console.error = orig; }
