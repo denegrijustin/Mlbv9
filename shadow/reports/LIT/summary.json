@@ -1,0 +1,21 @@
+{
+ "days": 1,
+ "start": "2026-10-26",
+ "end": "2026-10-26",
+ "total_return_pct": 0.0,
+ "max_drawdown_pct": 0.0,
+ "benchmark_pct": 0.0,
+ "mean_day_pnl": 0.0,
+ "ci": null,
+ "trades": 0,
+ "win_rate": null,
+ "vetoes": 0,
+ "data_gaps": 3,
+ "calibration": null,
+ "verdict": "Only 1 trading days: too few to separate skill from luck (need 60+ and a CI that excludes 0). Treat this as operational data, not evidence of edge.",
+ "symbol": "LIT",
+ "book_ticks": 1,
+ "proxy_ticks": 0,
+ "capital": 10000.0,
+ "simulated": true
+}

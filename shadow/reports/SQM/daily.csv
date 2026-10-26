@@ -1,0 +1,2 @@
+date,equity_usd,day_pnl,cum_return_pct,drawdown_pct,benchmark_pct,trades_closed,wins,realized_net,signals,vetoes,data_gaps
+2026-10-26,10000.0,0.0,0.0,0.0,0.0,0,0,0,0,0,3
