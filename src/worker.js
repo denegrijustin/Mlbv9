@@ -32,11 +32,31 @@ export async function dispatch(event, env, fetchImpl = fetch) {
   return { ok: true, task };
 }
 
+// Read-only self check at /_health: is the secret present, and does GitHub accept it? Never returns the token.
+export async function health(env, fetchImpl = fetch) {
+  const out = { token_set: Boolean(env.GITHUB_TOKEN), repo: REPO, workflow: WORKFLOW };
+  if (!env.GITHUB_TOKEN) return out;
+  const r = await fetchImpl(`https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW}/runs?per_page=1&event=workflow_dispatch`, {
+    headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "dollar-shadow-trigger" },
+  });
+  out.github_status = r.status;
+  if (r.ok) {
+    const run = ((await r.json()).workflow_runs || [])[0];
+    out.latest_dispatched_run = run ? { created_at: run.created_at, status: run.status, conclusion: run.conclusion } : null;
+  } else {
+    out.github_message = (await r.text()).slice(0, 160);
+  }
+  return out;
+}
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(dispatch(event, env));
   },
   async fetch(request, env) {
+    if (new URL(request.url).pathname === "/_health") {
+      return new Response(JSON.stringify(await health(env), null, 1), { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+    }
     return env.ASSETS.fetch(request);   // only reached for paths that are not static files
   },
 };

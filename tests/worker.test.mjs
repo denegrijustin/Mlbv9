@@ -58,3 +58,29 @@ test("fetch passes everything else to the static assets", async () => {
   assert.equal(res, "asset");
   assert.deepEqual(seen, ["https://x/y"]);
 });
+
+import { health } from "../src/worker.js";
+
+test("health: no token reports token_set false and makes no request", async () => {
+  const { f, calls } = mockFetch();
+  const r = await health({}, f);
+  assert.deepEqual(r, { token_set: false, repo: "denegrijustin/Mlbv9", workflow: "shadow.yml" });
+  assert.equal(calls.length, 0);
+});
+
+test("health: reports GitHub status and never leaks the token", async () => {
+  const bad = mockFetch(401, '{"message":"Bad credentials"}');
+  const r1 = await health({ GITHUB_TOKEN: "sekrit" }, bad.f);
+  assert.equal(r1.github_status, 401);
+  assert.ok(!JSON.stringify(r1).includes("sekrit"));
+  const ok = { status: 200, ok: true, json: async () => ({ workflow_runs: [{ created_at: "t", status: "completed", conclusion: "success" }] }), text: async () => "" };
+  const r2 = await health({ GITHUB_TOKEN: "sekrit" }, async () => ok);
+  assert.deepEqual(r2.latest_dispatched_run, { created_at: "t", status: "completed", conclusion: "success" });
+});
+
+test("fetch serves /_health as JSON and passes other paths to assets", async () => {
+  const res = await worker.fetch({ url: "https://x/_health" }, { ASSETS: { fetch: async () => "asset" } });
+  assert.equal(res.headers.get("content-type"), "application/json");
+  assert.equal((await res.json()).token_set, false);
+  assert.equal(await worker.fetch({ url: "https://x/other" }, { ASSETS: { fetch: async () => "asset" } }), "asset");
+});
