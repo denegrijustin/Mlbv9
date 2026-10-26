@@ -1,0 +1,11 @@
+"""Append-only JSONL so calibration can be measured later."""
+import json, time
+
+
+class Log:
+    def __init__(self, path="desk_log.jsonl"):
+        self.path = path
+
+    def __call__(self, event, **kw):
+        with open(self.path, "a") as f:
+            f.write(json.dumps({"t": time.time(), "event": event, **kw}) + "\n")
