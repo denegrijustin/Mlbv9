@@ -272,3 +272,53 @@ class CalibrateTests(unittest.TestCase):
         self.assertIn("p_raw", a)
         self.assertLess(abs(a["p"] - 0.5), abs(a["p_raw"] - 0.5))
         self.assertTrue(r["version"].endswith("+platt"))
+
+
+class ResearchTests(unittest.TestCase):
+    def _closes(self, n=900, seed=2, plant=0.0):
+        """Returns = noise + plant * f, f an exogenous persistent AR(1) factor (no feedback, so no runaway)."""
+        import numpy as np
+        rng = np.random.default_rng(seed)
+        f = np.zeros(n)
+        for i in range(1, n):
+            f[i] = 0.97 * f[i - 1] + rng.normal(0, 0.25)
+        r = rng.normal(0, 0.015, n) + plant * f
+        lit = 50 * np.exp(np.cumsum(r))
+        mk = lambda s: 50 * np.exp(np.cumsum(np.random.default_rng(s).normal(0, 0.012, n)))
+        return {"LIT": lit, "ALB": mk(7), "SQM": mk(8), "SPY": mk(9)}
+
+    def test_features_have_no_lookahead(self):
+        import numpy as np
+        from desk.research import build_features
+        c = self._closes()
+        _, a = build_features(c)
+        c2 = {k: v.copy() for k, v in c.items()}
+        for v in c2.values():
+            v[600:] *= 1.7                           # change the future after bar 599
+        _, b = build_features(c2)
+        np.testing.assert_allclose(a[:600], b[:600], equal_nan=True)
+
+    def test_detects_planted_skill(self):
+        import numpy as np
+        from desk.research import build_features, target, walk_forward, auc
+        c = self._closes(n=1800, plant=0.004)
+        names, X = build_features(c)
+        idx, pm, pb, yt = walk_forward(X[:, [names.index("mom_20")]], target(c["LIT"]))
+        self.assertGreater(auc(pm, yt), 0.55)
+
+    def test_pure_noise_shows_no_skill(self):
+        from desk.research import build_features, target, walk_forward, auc
+        c = self._closes(n=1800, plant=0.0)
+        names, X = build_features(c)
+        idx, pm, pb, yt = walk_forward(X, target(c["LIT"]))
+        self.assertLess(abs(auc(pm, yt) - 0.5), 0.08)
+
+    def test_purge_keeps_labels_out_of_training_window(self):
+        import numpy as np
+        from desk import research
+        c = self._closes()
+        names, X = research.build_features(c)
+        y = research.target(c["LIT"])
+        idx, *_ = research.walk_forward(X, y)
+        self.assertGreaterEqual(idx.min(), research.WARMUP)
+        self.assertLess(idx.max(), len(y) - research.H)
